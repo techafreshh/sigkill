@@ -57,11 +57,21 @@ func is_run_active() -> bool:
 	return run_active
 
 
+func get_peak_alive() -> int:
+	if spawner == null or not is_instance_valid(spawner):
+		return 0
+	if not spawner.has_method("get_peak_alive"):
+		return 0
+	return int(spawner.call("get_peak_alive"))
+
+
 func reset_run() -> void:
 	elapsed_seconds = 0.0
 	kill_count = 0
 	run_active = true
 	_hud_accum = 0.0
+	if spawner != null and is_instance_valid(spawner) and spawner.has_method("reset_peak"):
+		spawner.call("reset_peak")
 	_refresh_hud()
 
 

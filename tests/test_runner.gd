@@ -45,6 +45,7 @@ func run_all() -> void:
 		"test_spawner_ring_spawns_offscreen",
 		"test_spawner_enforces_cap",
 		"test_spawner_preserves_overshoot",
+		"test_spawner_peak_tracks_and_resets",
 		"test_spawner_zero_interval_no_hang",
 		"test_spawner_quiet_by_default",
 		"test_spawner_verbose_reemits_diagnostics",
@@ -59,6 +60,7 @@ func run_all() -> void:
 		"test_main_exposes_run_api",
 		"test_main_clock_accumulates",
 		"test_main_kill_counter_and_reset",
+		"test_main_reset_clears_peak",
 		"test_main_hud_updates",
 		"test_main_hud_preserves_overshoot",
 		"test_sanity_math",
@@ -488,6 +490,31 @@ func test_spawner_preserves_overshoot() -> bool:
 	return ok
 
 
+func test_spawner_peak_tracks_and_resets() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var spawner: Node = load("res://spawner.gd").new()
+	root.add_child(spawner)
+	spawner.set_physics_process(false)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("batch_size", 1)
+	spawner.set("max_entities", 1000)
+	await process_frame
+	spawner.call("_physics_process", 0.6)
+	var tracked := get_nodes_in_group("enemies").size()
+	ok = assert_true(tracked >= 1, "peak tick spawns at least one enemy") and ok
+	ok = assert_eq(int(spawner.call("get_peak_alive")), int(spawner.get("peak_alive")), "get_peak_alive mirrors peak_alive") and ok
+	ok = assert_true(int(spawner.call("get_peak_alive")) >= tracked, "peak covers live enemies") and ok
+	spawner.call("reset_peak")
+	ok = assert_eq(int(spawner.get("peak_alive")), 0, "reset_peak zeroes peak_alive") and ok
+	ok = assert_eq(int(spawner.call("get_peak_alive")), 0, "get_peak_alive reads zero after reset") and ok
+	spawner.call("_physics_process", 0.0)
+	ok = assert_true(int(spawner.call("get_peak_alive")) >= tracked, "peak re-tracks live enemies after reset") and ok
+	spawner.queue_free()
+	await _clear_enemies()
+	return ok
+
+
 func test_spawner_zero_interval_no_hang() -> bool:
 	var ok := true
 	await _clear_enemies()
@@ -826,7 +853,7 @@ func test_main_exposes_run_api() -> bool:
 	if instance == null:
 		return false
 	await process_frame
-	for method_name: String in ["register_kill", "get_elapsed", "get_kills", "is_run_active", "reset_run"]:
+	for method_name: String in ["register_kill", "get_elapsed", "get_kills", "is_run_active", "reset_run", "get_peak_alive"]:
 		ok = assert_true(instance.has_method(method_name), "main exposes " + method_name) and ok
 	ok = assert_true(instance.get_node_or_null("Player") != null, "main wires Player") and ok
 	ok = assert_true(instance.get_node_or_null("Spawner") != null, "main wires Spawner") and ok
@@ -873,6 +900,36 @@ func test_main_kill_counter_and_reset() -> bool:
 	ok = assert_eq(float(instance.call("get_elapsed")), 0.0, "reset zeroes clock") and ok
 	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
 	instance.queue_free()
+	return ok
+
+
+func test_main_reset_clears_peak() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var bare: Node = load("res://main.gd").new()
+	ok = assert_eq(int(bare.call("get_peak_alive")), 0, "unwired coordinator reads zero peak") and ok
+	bare.free()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("peak_alive", 7)
+	instance.call("register_kill")
+	ok = assert_eq(int(instance.call("get_peak_alive")), 7, "coordinator delegates spawner peak") and ok
+	instance.call("reset_run")
+	ok = assert_eq(int(spawner.get("peak_alive")), 0, "reset_run zeroes spawner peak") and ok
+	ok = assert_eq(int(instance.call("get_peak_alive")), 0, "coordinator reads zero peak after reset") and ok
+	ok = assert_eq(int(instance.call("get_kills")), 0, "reset still zeroes kills") and ok
+	ok = assert_eq(float(instance.call("get_elapsed")), 0.0, "reset still zeroes clock") and ok
+	ok = assert_true(bool(instance.call("is_run_active")), "reset still reactivates run") and ok
+	instance.queue_free()
+	await _clear_enemies()
 	return ok
 
 
