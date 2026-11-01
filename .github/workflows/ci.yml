@@ -86,11 +86,20 @@ jobs:
           curl -fsS -o /dev/null http://localhost:8123/index.html
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8123/does-not-exist)
           test "$code" = "404"
-          for bad in '/%00' '/%00.html' '/%ZZ' '/%'; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --path-as-is "http://localhost:8123$bad" || true)
-            case "$code" in 400|404) ;; *) echo "malformed path $bad -> [$code], want 400/404"; exit 1;; esac
-            test -n "$code"
-          done
+          code=$(curl -s -o /dev/null -w '%{http_code}' --path-as-is "http://localhost:8123/%00" || true)
+          test "$code" = "400" || { echo "malformed path /%00 -> [$code], want 400"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' --path-as-is "http://localhost:8123/%00.html" || true)
+          test "$code" = "400" || { echo "malformed path /%00.html -> [$code], want 400"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' --path-as-is "http://localhost:8123/%ZZ" || true)
+          test "$code" = "404" || { echo "malformed path /%ZZ -> [$code], want 404"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' --path-as-is "http://localhost:8123/%" || true)
+          test "$code" = "404" || { echo "malformed path /% -> [$code], want 404"; exit 1; }
+          wasm=$(ls build/web/*.wasm) || { echo "no .wasm payload in build/web"; exit 1; }
+          wasm=$(echo "$wasm" | head -n 1)
+          base=$(basename "$wasm")
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:8123/$base")
+          test "$code" = "200" || { echo ".wasm $base -> [$code], want 200"; exit 1; }
+          curl -s -D - -o /dev/null "http://localhost:8123/$base" | grep -qi 'content-type:.*application/wasm' || { echo ".wasm $base missing Content-Type: application/wasm"; exit 1; }
           kill $srv
           trap - EXIT
 
