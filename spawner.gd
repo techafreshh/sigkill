@@ -22,6 +22,14 @@ var _accum := 0.0
 var _tick := 0
 
 
+func get_peak_alive() -> int:
+	return peak_alive
+
+
+func reset_peak() -> void:
+	peak_alive = 0
+
+
 func _ready() -> void:
 	_resolve_player()
 
