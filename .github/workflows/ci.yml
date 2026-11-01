@@ -54,6 +54,15 @@ jobs:
           sim=$(grep -o "SIM_SECONDS=[0-9.]*" autoplay.log | head -n 1 | cut -d= -f2)
           test -n "$sim"
           awk "BEGIN { exit !( ${sim} + 0 >= 60 ) }"
+          grep -q "MEASURED_SECONDS=[0-9.]*" autoplay.log
+          grep -q "WALL_SECONDS=[0-9.]*" autoplay.log
+          grep -q "FRAMES=[0-9]*" autoplay.log
+          measured=$(grep -o "MEASURED_SECONDS=[0-9.]*" autoplay.log | head -n 1 | cut -d= -f2)
+          test -n "$measured"
+          awk "BEGIN { exit !( ${measured} + 0 >= 55 ) }"
+          wall=$(grep -o "WALL_SECONDS=[0-9.]*" autoplay.log | head -n 1 | cut -d= -f2)
+          test -n "$wall"
+          awk "BEGIN { exit !( ${wall} + 0 >= 50 ) }"
           exit $code
 
       - name: Export Web

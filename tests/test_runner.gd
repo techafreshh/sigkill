@@ -4,6 +4,7 @@
 extends SceneTree
 
 const MOVE_ACTIONS: Array[String] = ["move_up", "move_down", "move_left", "move_right"]
+const AutopilotScript := preload("res://autopilot/autopilot.gd")
 
 var passed := 0
 var failed := 0
@@ -36,6 +37,8 @@ func run_all() -> void:
 		"test_camera_follows_player",
 		"test_ground_renders",
 		"test_sanity_math",
+		"test_nominal_seconds_math",
+		"test_measured_clock_accumulates",
 	]
 	for t: String in tests:
 		var outcome: Variant = await call(t)
@@ -221,4 +224,30 @@ func test_sanity_math() -> bool:
 	var ok := true
 	ok = assert_eq(2 + 2, 4, "sanity math") and ok
 	ok = assert_true(true, "sanity true") and ok
+	return ok
+
+
+func test_nominal_seconds_math() -> bool:
+	var ok := true
+	ok = assert_eq(AutopilotScript.nominal_seconds(3600, 60.0), 60.0, "nominal 3600 frames at 60 fps is 60 seconds") and ok
+	ok = assert_eq(AutopilotScript.nominal_seconds(0, 60.0), 0.0, "nominal 0 frames is 0 seconds") and ok
+	ok = assert_eq(AutopilotScript.nominal_seconds(30, 60.0), 0.5, "nominal 30 frames at 60 fps is 0.5 seconds") and ok
+	ok = assert_eq(AutopilotScript.nominal_seconds(3600, 60.0), AutopilotScript.nominal_seconds(3600, 60.0), "nominal helper is deterministic frame-count math") and ok
+	return ok
+
+
+func test_measured_clock_accumulates() -> bool:
+	var ok := true
+	await process_frame
+	var clock := AutopilotScript.SimClock.new()
+	root.add_child(clock)
+	var frames := 10
+	for i in frames:
+		await physics_frame
+	var measured: float = clock.measured
+	clock.queue_free()
+	var expected := float(frames) / 60.0
+	ok = assert_true(measured > 0.0, "probe measured delta sum is positive") and ok
+	ok = assert_true(measured > expected * 0.5, "probe measured above generous lower bound") and ok
+	ok = assert_true(measured < expected * 2.0 + 0.05, "probe measured below generous upper bound") and ok
 	return ok
