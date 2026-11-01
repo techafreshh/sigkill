@@ -64,6 +64,10 @@ func run_all() -> void:
 		"test_chaser_does_not_pass_through_player",
 		"test_player_shoves_through_encirclement",
 		"test_chaser_stops_at_contact_band",
+		"test_chaser_has_take_damage",
+		"test_chaser_take_damage_reduces_health",
+		"test_chaser_take_damage_kills_at_zero",
+		"test_chaser_take_damage_guards",
 		"test_main_exposes_run_api",
 		"test_main_clock_accumulates",
 		"test_main_kill_counter_and_reset",
@@ -1542,4 +1546,106 @@ func test_no_attack_input_action() -> bool:
 	ok = assert_true(source.contains("move_right"), "project.godot keeps move_right") and ok
 	ok = assert_true(not source.contains("attack"), "project.godot defines no attack action") and ok
 	ok = assert_true(not source.contains("ui_accept"), "project.godot adds no ui_accept action") and ok
+	return ok
+
+
+func test_chaser_has_take_damage() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate()
+	root.add_child(chaser)
+	await process_frame
+	ok = assert_true(chaser.has_method("take_damage"), "chaser exposes take_damage") and ok
+	ok = assert_true(chaser.has_method("get_health"), "chaser exposes get_health") and ok
+	ok = assert_true(chaser.has_method("is_dead"), "chaser exposes is_dead") and ok
+	ok = assert_true(float(chaser.get("max_health")) > 0.0, "chaser max_health positive") and ok
+	ok = assert_eq(float(chaser.call("get_health")), float(chaser.get("max_health")), "chaser starts at full HP") and ok
+	ok = assert_true(not bool(chaser.call("is_dead")), "fresh chaser is not dead") and ok
+	chaser.queue_free()
+	return ok
+
+
+func test_chaser_take_damage_reduces_health() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate()
+	root.add_child(chaser)
+	await process_frame
+	var max_hp := float(chaser.get("max_health"))
+	var changed := [0]
+	var last := [0.0, 0.0]
+	var on_changed := func(current: float, maximum: float) -> void:
+		changed[0] += 1
+		last[0] = current
+		last[1] = maximum
+	chaser.connect("health_changed", on_changed)
+	chaser.call("take_damage", 1.0)
+	await process_frame
+	ok = assert_eq(float(chaser.call("get_health")), max_hp - 1.0, "partial damage reduces HP by 1.0") and ok
+	ok = assert_true(changed[0] >= 1, "health_changed emitted on partial damage") and ok
+	ok = assert_eq(last[1], max_hp, "health_changed reports maximum") and ok
+	ok = assert_true(is_instance_valid(chaser), "partially damaged chaser still valid") and ok
+	ok = assert_true(chaser.is_in_group("enemies"), "partially damaged chaser stays in enemies group") and ok
+	ok = assert_true(not bool(chaser.call("is_dead")), "partial damage does not kill") and ok
+	chaser.queue_free()
+	return ok
+
+
+func test_chaser_take_damage_kills_at_zero() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate()
+	root.add_child(chaser)
+	await process_frame
+	var max_hp := float(chaser.get("max_health"))
+	var died_count := [0]
+	var on_died := func() -> void:
+		died_count[0] += 1
+	chaser.connect("died", on_died)
+	chaser.call("take_damage", max_hp)
+	ok = assert_true(bool(chaser.call("is_dead")), "lethal damage marks dead") and ok
+	ok = assert_eq(died_count[0], 1, "died emitted exactly once") and ok
+	ok = assert_true(chaser.is_queued_for_deletion(), "lethal damage queues free") and ok
+	chaser.call("take_damage", 999.0)
+	ok = assert_eq(died_count[0], 1, "overkill after death is a no-op") and ok
+	ok = assert_eq(float(chaser.call("get_health")), 0.0, "HP clamped at zero") and ok
+	await process_frame
+	await process_frame
+	ok = assert_true(not is_instance_valid(chaser) or not chaser.is_in_group("enemies"), "dead chaser leaves enemies group") and ok
+	return ok
+
+
+func test_chaser_take_damage_guards() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate()
+	root.add_child(chaser)
+	await process_frame
+	var max_hp := float(chaser.get("max_health"))
+	var died_count := [0]
+	var on_died := func() -> void:
+		died_count[0] += 1
+	chaser.connect("died", on_died)
+	chaser.call("take_damage", 0.0)
+	await process_frame
+	ok = assert_eq(float(chaser.call("get_health")), max_hp, "zero damage leaves HP unchanged") and ok
+	chaser.call("take_damage", -5.0)
+	await process_frame
+	ok = assert_eq(float(chaser.call("get_health")), max_hp, "negative damage leaves HP unchanged") and ok
+	ok = assert_eq(died_count[0], 0, "guarded hits emit no died") and ok
+	ok = assert_true(not bool(chaser.call("is_dead")), "guarded chaser still alive") and ok
+	ok = assert_true(is_instance_valid(chaser) and chaser.is_in_group("enemies"), "guarded chaser stays grouped") and ok
+	chaser.queue_free()
 	return ok
