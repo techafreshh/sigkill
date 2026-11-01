@@ -19,9 +19,21 @@ func _ready() -> void:
 	queue_redraw()
 
 
+func _resolve_target() -> void:
+	if is_instance_valid(target):
+		return
+	if target_path != null and not target_path.is_empty():
+		target = get_node_or_null(target_path) as Node2D
+	if is_instance_valid(target):
+		return
+	if get_tree() != null:
+		target = get_tree().get_first_node_in_group("player") as Node2D
+
+
 func _physics_process(delta: float) -> void:
 	if not is_instance_valid(target):
-		velocity = velocity.move_toward(Vector2.ZERO, acceleration * delta)
+		_resolve_target()
+	if not is_instance_valid(target):
 		move_and_slide()
 		return
 	var direction: Vector2 = target.global_position - global_position

@@ -52,6 +52,8 @@ func run_all() -> void:
 		"test_chaser_has_accel_tuning",
 		"test_chaser_velocity_ramps",
 		"test_chaser_turns_gradually",
+		"test_chaser_without_target_keeps_moving",
+		"test_chaser_reacquires_player",
 		"test_chaser_player_collide",
 		"test_chaser_does_not_pass_through_player",
 		"test_main_exposes_run_api",
@@ -729,12 +731,75 @@ func test_chaser_turns_gradually() -> bool:
 	chaser.set("target", null)
 	for i in 5:
 		await physics_frame
-	var decaying: float = (chaser as CharacterBody2D).velocity.length()
-	ok = assert_true(decaying < before and decaying > 0.0, "invalid target decays gradually (%.1f -> %.1f)" % [before, decaying]) and ok
+	var coasting: float = (chaser as CharacterBody2D).velocity.length()
+	ok = assert_true(absf(coasting - before) < before * 0.05, "invalid target coasts, speed preserved (%.1f -> %.1f)" % [before, coasting]) and ok
+	var coast_start: Vector2 = chaser.global_position
 	for i in 60:
 		await physics_frame
-	var rest: float = (chaser as CharacterBody2D).velocity.length()
-	ok = assert_true(rest < 5.0, "chaser settles near zero without target (%.2f)" % rest) and ok
+	var coast_disp: float = chaser.global_position.distance_to(coast_start)
+	ok = assert_true(coast_disp > 50.0, "targetless chaser keeps displacing (%.1f px)" % coast_disp) and ok
+	chaser.queue_free()
+	dummy.queue_free()
+	return ok
+
+
+func test_chaser_without_target_keeps_moving() -> bool:
+	var ok := true
+	for node: Node in get_nodes_in_group("player"):
+		node.queue_free()
+	await process_frame
+	await process_frame
+	ok = assert_true(get_nodes_in_group("player").is_empty(), "no player present for targetless drift") and ok
+	if not ok:
+		return false
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = Vector2.ZERO
+	chaser.set("target", null)
+	await process_frame
+	chaser.set("velocity", Vector2(140, 0))
+	var start_speed: float = (chaser as CharacterBody2D).velocity.length()
+	var start_pos: Vector2 = chaser.global_position
+	for i in 60:
+		await physics_frame
+	var end_speed: float = (chaser as CharacterBody2D).velocity.length()
+	var disp: float = chaser.global_position.distance_to(start_pos)
+	ok = assert_true(absf(end_speed - start_speed) < start_speed * 0.05, "targetless chaser preserves speed (%.1f -> %.1f)" % [start_speed, end_speed]) and ok
+	ok = assert_true(disp > 50.0, "targetless chaser displaces (%.1f px)" % disp) and ok
+	chaser.queue_free()
+	return ok
+
+
+func test_chaser_reacquires_player() -> bool:
+	var ok := true
+	for node: Node in get_nodes_in_group("player"):
+		node.queue_free()
+	await process_frame
+	await process_frame
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	dummy.add_to_group("player")
+	dummy.global_position = Vector2(500, 0)
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = Vector2.ZERO
+	chaser.set("target", null)
+	chaser.set("velocity", Vector2.ZERO)
+	chaser.call("_resolve_target")
+	ok = assert_true(chaser.get("target") == dummy, "chaser re-acquires group player") and ok
+	var before: float = chaser.global_position.distance_to(dummy.global_position)
+	for i in 60:
+		await physics_frame
+	var after: float = chaser.global_position.distance_to(dummy.global_position)
+	ok = assert_true(after < before, "re-acquired chaser closes distance (%.1f -> %.1f)" % [before, after]) and ok
 	chaser.queue_free()
 	dummy.queue_free()
 	return ok
