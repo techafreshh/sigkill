@@ -36,7 +36,7 @@ func _physics_process(delta: float) -> void:
 	elapsed_seconds += delta
 	_hud_accum += delta
 	if _hud_accum >= hud_refresh_interval:
-		_hud_accum = 0.0
+		_hud_accum -= hud_refresh_interval
 		_refresh_hud()
 
 
