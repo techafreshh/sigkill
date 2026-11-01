@@ -56,6 +56,7 @@ func run_all() -> void:
 		"test_chaser_turns_gradually",
 		"test_chaser_without_target_keeps_moving",
 		"test_chaser_reacquires_player",
+		"test_player_survives_targetless_isolation",
 		"test_chaser_player_collide",
 		"test_chaser_does_not_pass_through_player",
 		"test_player_shoves_through_encirclement",
@@ -335,6 +336,22 @@ func _clear_enemies() -> void:
 		node.queue_free()
 	await process_frame
 	await process_frame
+
+
+func _stash_player_group() -> Array:
+	await process_frame
+	await process_frame
+	var stashed := get_nodes_in_group("player").duplicate()
+	for node: Node in stashed:
+		if is_instance_valid(node):
+			node.remove_from_group("player")
+	return stashed
+
+
+func _restore_player_group(stashed: Array) -> void:
+	for node: Node in stashed:
+		if is_instance_valid(node) and not node.is_in_group("player"):
+			node.add_to_group("player")
 
 
 func _teardown_test_fixtures() -> void:
@@ -829,16 +846,15 @@ func test_chaser_turns_gradually() -> bool:
 
 func test_chaser_without_target_keeps_moving() -> bool:
 	var ok := true
-	for node: Node in get_nodes_in_group("player"):
-		node.queue_free()
-	await process_frame
-	await process_frame
+	var stashed: Array = await _stash_player_group()
 	ok = assert_true(get_nodes_in_group("player").is_empty(), "no player present for targetless drift") and ok
 	if not ok:
+		_restore_player_group(stashed)
 		return false
 	var packed := load("res://enemies/chaser.tscn") as PackedScene
 	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
 	if packed == null:
+		_restore_player_group(stashed)
 		return false
 	var chaser := packed.instantiate() as CharacterBody2D
 	root.add_child(chaser)
@@ -855,18 +871,19 @@ func test_chaser_without_target_keeps_moving() -> bool:
 	ok = assert_true(absf(end_speed - start_speed) < start_speed * 0.05, "targetless chaser preserves speed (%.1f -> %.1f)" % [start_speed, end_speed]) and ok
 	ok = assert_true(disp > 50.0, "targetless chaser displaces (%.1f px)" % disp) and ok
 	chaser.queue_free()
+	await process_frame
+	await process_frame
+	_restore_player_group(stashed)
 	return ok
 
 
 func test_chaser_reacquires_player() -> bool:
 	var ok := true
-	for node: Node in get_nodes_in_group("player"):
-		node.queue_free()
-	await process_frame
-	await process_frame
+	var stashed: Array = await _stash_player_group()
 	var packed := load("res://enemies/chaser.tscn") as PackedScene
 	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
 	if packed == null:
+		_restore_player_group(stashed)
 		return false
 	var dummy := Node2D.new()
 	root.add_child(dummy)
@@ -886,6 +903,57 @@ func test_chaser_reacquires_player() -> bool:
 	ok = assert_true(after < before, "re-acquired chaser closes distance (%.1f -> %.1f)" % [before, after]) and ok
 	chaser.queue_free()
 	dummy.queue_free()
+	await process_frame
+	await process_frame
+	_restore_player_group(stashed)
+	return ok
+
+
+func test_player_survives_targetless_isolation() -> bool:
+	var ok := true
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null:
+		instance.queue_free()
+		return false
+	ok = assert_true(player.is_in_group("player"), "player joins player group") and ok
+	ok = assert_true(get_first_node_in_group("player") == player, "group lookup resolves to Player") and ok
+	var stashed: Array = await _stash_player_group()
+	ok = assert_true(get_nodes_in_group("player").is_empty(), "no player present for targetless drift") and ok
+	if not ok:
+		_restore_player_group(stashed)
+		instance.queue_free()
+		return false
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		_restore_player_group(stashed)
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = Vector2.ZERO
+	chaser.set("target", null)
+	await process_frame
+	chaser.set("velocity", Vector2(140, 0))
+	var start_pos: Vector2 = chaser.global_position
+	for i in 60:
+		await physics_frame
+	var disp: float = chaser.global_position.distance_to(start_pos)
+	ok = assert_true(disp > 50.0, "targetless chaser displaces (%.1f px)" % disp) and ok
+	chaser.queue_free()
+	await process_frame
+	await process_frame
+	_restore_player_group(stashed)
+	ok = assert_true(is_instance_valid(player), "player survives targetless isolation") and ok
+	ok = assert_true(player.is_in_group("player"), "player rejoins player group after restore") and ok
+	ok = assert_true(get_first_node_in_group("player") == player, "group lookup resolves to Player after restore") and ok
+	instance.queue_free()
 	return ok
 
 
