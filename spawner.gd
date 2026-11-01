@@ -70,9 +70,7 @@ func _min_view_radius() -> float:
 func _spawn_center() -> Vector2:
 	if is_instance_valid(player):
 		return (player as Node2D).global_position
-	var cam := get_viewport().get_camera_2d()
-	if cam != null:
-		return cam.get_screen_center_position()
+	push_error("spawner: no valid player; skipping spawn")
 	return global_position
 
 
@@ -87,6 +85,9 @@ func _try_spawn() -> void:
 		return
 	if not is_instance_valid(player):
 		_resolve_player()
+	if not is_instance_valid(player):
+		push_error("spawner: no valid player; skipping spawn")
+		return
 	var center := _spawn_center()
 	var radius := _min_view_radius()
 	for i in room:
