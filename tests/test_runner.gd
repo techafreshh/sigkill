@@ -46,6 +46,9 @@ func run_all() -> void:
 		"test_spawner_preserves_overshoot",
 		"test_spawner_zero_interval_no_hang",
 		"test_chaser_steers_toward_player",
+		"test_chaser_has_accel_tuning",
+		"test_chaser_velocity_ramps",
+		"test_chaser_turns_gradually",
 		"test_chaser_player_collide",
 		"test_chaser_does_not_pass_through_player",
 		"test_main_exposes_run_api",
@@ -559,6 +562,86 @@ func test_chaser_does_not_pass_through_player() -> bool:
 	ok = assert_true(final_dist > 15.0, "chaser blocked at contact boundary (dist=%.1f)" % final_dist) and ok
 	chaser.queue_free()
 	instance.queue_free()
+	return ok
+
+
+func test_chaser_has_accel_tuning() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	await process_frame
+	ok = assert_eq(float(chaser.get("speed")), 140.0, "chaser default speed is 140") and ok
+	ok = assert_true(float(chaser.get("acceleration")) > 0.0, "chaser acceleration positive") and ok
+	chaser.queue_free()
+	return ok
+
+
+func test_chaser_velocity_ramps() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	root.add_child(chaser)
+	chaser.global_position = Vector2.ZERO
+	dummy.global_position = Vector2(500, 0)
+	chaser.set("target", dummy)
+	chaser.set("velocity", Vector2.ZERO)
+	await process_frame
+	chaser.set("velocity", Vector2.ZERO)
+	var speed: float = float(chaser.get("speed"))
+	for i in 3:
+		await physics_frame
+	var early: float = (chaser as CharacterBody2D).velocity.length()
+	ok = assert_true(early > 0.0 and early < speed, "chaser velocity ramps, not snapped (%.1f)" % early) and ok
+	for i in 60:
+		await physics_frame
+	var full: float = (chaser as CharacterBody2D).velocity.length()
+	ok = assert_true(absf(full - speed) < speed * 0.05, "chaser velocity converges to speed (%.1f)" % full) and ok
+	chaser.queue_free()
+	dummy.queue_free()
+	return ok
+
+
+func test_chaser_turns_gradually() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	root.add_child(chaser)
+	chaser.global_position = Vector2.ZERO
+	dummy.global_position = Vector2(-500, 0)
+	chaser.set("target", dummy)
+	chaser.set("velocity", Vector2(140, 0))
+	await process_frame
+	chaser.set("velocity", Vector2(140, 0))
+	for i in 2:
+		await physics_frame
+	var vx: float = (chaser as CharacterBody2D).velocity.x
+	ok = assert_true(vx > 0.0, "chaser reversal takes multiple ticks (vx=%.1f)" % vx) and ok
+	var before: float = (chaser as CharacterBody2D).velocity.length()
+	chaser.set("target", null)
+	for i in 5:
+		await physics_frame
+	var decaying: float = (chaser as CharacterBody2D).velocity.length()
+	ok = assert_true(decaying < before and decaying > 0.0, "invalid target decays gradually (%.1f -> %.1f)" % [before, decaying]) and ok
+	for i in 60:
+		await physics_frame
+	var rest: float = (chaser as CharacterBody2D).velocity.length()
+	ok = assert_true(rest < 5.0, "chaser settles near zero without target (%.2f)" % rest) and ok
+	chaser.queue_free()
+	dummy.queue_free()
 	return ok
 
 
