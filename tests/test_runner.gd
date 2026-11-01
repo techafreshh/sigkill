@@ -60,6 +60,7 @@ func run_all() -> void:
 		"test_main_clock_accumulates",
 		"test_main_kill_counter_and_reset",
 		"test_main_hud_updates",
+		"test_main_hud_preserves_overshoot",
 		"test_sanity_math",
 		"test_nominal_seconds_math",
 		"test_measured_clock_accumulates",
@@ -877,6 +878,27 @@ func test_main_hud_updates() -> bool:
 		return false
 	ok = assert_true(label.text != "SIGKILL skeleton", "HUD leaves skeleton text") and ok
 	ok = assert_true(label.text.contains("KILLS="), "HUD reflects kill state") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_hud_preserves_overshoot() -> bool:
+	var ok := true
+	var instance: Node = load("res://main.gd").new()
+	root.add_child(instance)
+	instance.set_physics_process(false)
+	instance.set("hud_refresh_interval", 0.25)
+	instance.set("_hud_accum", 0.0)
+	instance.set("elapsed_seconds", 0.0)
+	await process_frame
+	instance.call("_physics_process", 0.30)
+	var resid := float(instance.get("_hud_accum"))
+	ok = assert_true(absf(resid - 0.05) < 0.01, "hud overshoot carried (accum=%.4f)" % resid) and ok
+	ok = assert_true(absf(float(instance.call("get_elapsed")) - 0.30) < 0.01, "hud frame advances clock") and ok
+	instance.set("_hud_accum", 0.0)
+	instance.call("_physics_process", 0.60)
+	var resid2 := float(instance.get("_hud_accum"))
+	ok = assert_true(absf(resid2 - 0.35) < 0.01, "hud single subtract keeps one interval (accum=%.4f)" % resid2) and ok
 	instance.queue_free()
 	return ok
 
