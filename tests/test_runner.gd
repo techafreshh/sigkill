@@ -786,6 +786,13 @@ func test_chaser_velocity_ramps() -> bool:
 
 func test_chaser_turns_gradually() -> bool:
 	var ok := true
+	for node: Node in get_nodes_in_group("player"):
+		node.queue_free()
+	await process_frame
+	await process_frame
+	ok = assert_true(get_nodes_in_group("player").is_empty(), "no player present for gradual-turn coast") and ok
+	if not ok:
+		return false
 	var packed := load("res://enemies/chaser.tscn") as PackedScene
 	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
 	if packed == null:
