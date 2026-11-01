@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="TerminalTheme" load_steps=3 format=3 uid="uid://ckthm2sigkill1"]
+
+[ext_resource type="Script" path="res://data/theme.gd" id="1"]
+
+[sub_resource type="SystemFont" id="SystemFont_theme"]
+font_names = PackedStringArray("monospace")
+
+[resource]
+script = ExtResource("1")
+player_color = Color(0.3, 1, 0.55, 1)
+grid_color = Color(0.09, 0.28, 0.16, 0.55)
+grid_major_color = Color(0.14, 0.45, 0.25, 0.85)
+background_color = Color(0.02, 0.05, 0.03, 1)
+font = SubResource("SystemFont_theme")
+grid_cell_size = 64.0
+glyphs = PackedStringArray("@", "#", "$", "%", "&", "*", "+", ":", ".")
