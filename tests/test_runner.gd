@@ -378,6 +378,19 @@ func test_player_in_player_group() -> bool:
 	ok = assert_true(spawner != null, "main scene has Spawner") and ok
 	if spawner != null:
 		ok = assert_true(spawner.get("player") == player, "spawner resolves to Player") and ok
+	var holder := Node.new()
+	holder.name = "DetachedHolder"
+	root.add_child(holder)
+	var detached: Node = load("res://spawner.gd").new()
+	detached.set("player_path", NodePath(""))
+	holder.add_child(detached)
+	detached.set_physics_process(false)
+	await process_frame
+	detached.set("player", null)
+	detached.call("_resolve_player")
+	ok = assert_true(detached.get("player") == player, "detached spawner falls back to player group") and ok
+	holder.queue_free()
+	await process_frame
 	instance.queue_free()
 	return ok
 
