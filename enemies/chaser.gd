@@ -4,6 +4,7 @@ const TERMINAL_THEME := preload("res://data/theme.tres")
 
 @export var speed := 140.0
 @export var acceleration := 600.0
+@export var standoff_distance := 28.0
 @export var target_path: NodePath
 
 var target: Node2D
@@ -37,9 +38,13 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 	var direction: Vector2 = target.global_position - global_position
+	var dist := direction.length()
 	var desired := Vector2.ZERO
-	if direction.length() > 1.0:
-		desired = direction.normalized() * speed
+	if dist > 1.0:
+		var approach := 1.0
+		if dist < standoff_distance:
+			approach = dist / standoff_distance
+		desired = direction.normalized() * speed * approach
 	velocity = velocity.move_toward(desired, acceleration * delta)
 	move_and_slide()
 
