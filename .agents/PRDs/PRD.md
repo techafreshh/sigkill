@@ -140,7 +140,7 @@ res://
 
 ## 8. Technology Stack
 
-- **Engine:** Godot 4.x stable (exact version pinned in the toolchain issue; the version must have stable headless export for Web + Windows from Linux).
+- **Engine:** Godot **4.7-stable** — matching the factory's prebaked `godot-base` snapshot (editor binary + web export templates included). Headless Web + Windows exports from Linux. The web export preset is named **`Web`** and outputs to `build/web/` — a pinned contract, because the factory's verify gate serves that directory.
 - **Language:** GDScript only. No C#, no GDExtension, no addons except the test framework.
 - **Testing:** headless-runnable GDScript test framework (gdUnit4 suggested; final pick at the toolchain issue — the constraint is *runs in headless CI*, not the name).
 - **Art/audio:** one free monospace font (e.g. a terminal-standard like JetBrains Mono or VT323); Kenney audio packs (CC0). No sprite assets.
@@ -200,7 +200,7 @@ Wall-clock time is governed by factory ticks, not human hours; phases are sized 
 
 **Phase 0 — Walking skeleton + toolchain** *(before any gameplay issue)*
 - Goal: the pipeline exists and proves itself on a stub.
-- Deliverables: [ ] CI workflow (lap-1 deliverable) running headless unit-test skeleton on every PR · [ ] toolchain issue: Godot headless + export templates available in the build environment (env.mode decision made at factory onboarding) · [ ] stub web build (empty Godot project) auto-exported on merge and pushed to the itch.io staging channel · [ ] autoplay-verdict skeleton wired into CI (asserts: boots, runs 60 simulated seconds, zero errors)
+- Deliverables: [ ] CI workflow (lap-1 deliverable) running headless unit-test skeleton on every PR · [ ] toolchain verified in-lane: lap 1 confirms `godot --version` reports 4.7-stable and the web export templates resolve (factory `godot-base` snapshot, prebaked 2026-11-01 — no install issue needed) · [ ] stub web build (empty Godot project) auto-exported on merge and pushed to the itch.io staging channel · [ ] autoplay-verdict skeleton wired into CI (asserts: boots, runs 60 simulated seconds, zero errors)
 - Validation: a merged PR visibly updates the staging build; CI red/green demonstrably gates a PR.
 
 **Phase 1 — Core loop (brief M1+M2): move, dodge, kill**
@@ -241,22 +241,22 @@ Wall-clock time is governed by factory ticks, not human hours; phases are sized 
 
 1. **Verify-gate theater** — the factory merges laps on green checks that prove nothing about play. *Mitigation:* autoplay verdict asserts outcomes (kills, level-ups, cap), not just absence of errors; slice-gating means no cluster builds on an unplayed one; verdicts are cheap (3 fields) so they actually happen.
 2. **Web export performance** — ~300 entities + bullets on HTML5 may not hold 60fps. *Mitigation:* entity cap is configurable and can be lowered on web export; perf is a named deliverable in Phase 4, before art/juice lands; profiling before pooling (guardrail from the brief).
-3. **Toolchain gaps surface mid-build as blocked laps** (factory runbook's own warning: the environment has no Godot). *Mitigation:* dedicated toolchain issue in Phase 0, before any gameplay issue; env.mode decision at onboarding; runtime scenarios `--test`-ed before the first lap.
+3. **Toolchain drift or gaps in the build environment.** *Mitigation:* largely closed — the factory's `godot-base` snapshot (Godot 4.7-stable + web export templates) was prebaked 2026-11-01 for this lane, and lap 1 re-verifies it in-lane; runtime scenarios are `--test`-ed before the first lap; if the base is ever re-baked, re-verify the Godot version before new laps claim.
 4. **Fun never arrives** (the design risk every survivors-like carries). *Mitigation:* earliest possible core-loop playtest (Phase 1 checkpoint, ~2 checkpoints in); ruling: cut product scope, never cut the loop — if minute 2 isn't fun, the fix is core-loop iteration, not content.
 5. **Scope creep via issue drift** (the slicer slices what the PRD says). *Mitigation:* non-goals list is explicit and checked into this PRD; new ideas during the run go to §13, not the backlog; slice-gating gives the operator a natural checkpoint to refuse drift.
 
 ## 15. Appendix
 
 **Operator checklist (never becomes a factory issue):**
-- [ ] Create GitHub repo `sigkill`, push this PRD to `.agents/PRDs/PRD.md`
-- [ ] Factory onboarding via the pi-factory wizard (Stage 0 precheck → Stage 2 config incl. **env.mode decision** and model lineup → Stage 4 backlog)
-- [ ] Create itch.io account + project page; generate `butler` API key; add to GitHub Actions secrets
+- [x] Create GitHub repo `techafreshh/sigkill`, push this PRD to `.agents/PRDs/PRD.md` (done 2026-11-01)
+- [x] Factory onboarding (done 2026-11-01): slug `sigkill`, scenario ports 8140/8141, env.mode **instabox** on the `godot-base` snapshot, models `meta/muse-spark-1.3-contributor` (plan/implement/review **xhigh**, default high), squash-merge, `required_checks ["*"]`, 3 attempts
+- [ ] Create itch.io account + project page; generate `butler` API key; add to GitHub Actions secrets (needed by the walking-skeleton lap)
 - [ ] Slice Phase 0 + Phase 1 clusters only; hold later clusters until verdicts
 
 **Slice-gating recap:** playtest verdicts (3 fields: fun yes/no · what felt wrong · one change) are the throttle. No cluster's issues enter the backlog until the previous build's verdict is filed.
 
 **Related documents:** this PRD is distilled from the forge session (see `forge-report.html` at the repo root for the decision record).
 
-**Agent skills:** `.agents/skills/` carries 14 skills curated from `gamedev-skills/awesome-gamedev-agent-skills` — Godot fundamentals (`godot-gdscript`, `-nodes-scenes`, `-signals-groups`, `-resources`, `-2d-movement`, `-physics`, `-ui-control`, `-audio`, `-shaders`, `-export`, `-gdscript-headless-testing`) plus `game-feel`, `performance-optimization`, `itch-publish`. Committed before lap 1 so lap agents and local sessions share the same Godot lore. Deliberately NOT the full 69-skill collection: other engines' skills and genre/feature skills matching v1 non-goals (`save-systems`, `procedural-gen`, `level-design`, `dialogue-systems`) are excluded to protect the scope line and lap context budget. Cross-references inside skills to uninstalled siblings are harmless dead ends. Whether the factory's lap agents load repo-level skills is verified at onboarding (Stage 2, `pi` toolset config).
+**Agent skills:** `.agents/skills/` carries 14 skills curated from `gamedev-skills/awesome-gamedev-agent-skills` — Godot fundamentals (`godot-gdscript`, `-nodes-scenes`, `-signals-groups`, `-resources`, `-2d-movement`, `-physics`, `-ui-control`, `-audio`, `-shaders`, `-export`, `-gdscript-headless-testing`) plus `game-feel`, `performance-optimization`, `itch-publish`. Committed before lap 1 so lap agents and local sessions share the same Godot lore. Deliberately NOT the full 69-skill collection: other engines' skills and genre/feature skills matching v1 non-goals (`save-systems`, `procedural-gen`, `level-design`, `dialogue-systems`) are excluded to protect the scope line and lap context budget. Cross-references inside skills to uninstalled siblings are harmless dead ends. Whether the factory's lap agents load repo-level skills is verified empirically after lap 1 (the Stage 2 `pi` block wires factory-shipped skills per-lap; repo-level loading is not config-controlled).
 
 **Forge decisions baked into this PRD:** factory is the dev · dual purpose B+A (prove pipeline, ship fun) · cut scope, never the loop · staging-on-merge + slice-gating + 7 weighted checkpoints · infinite plane · terminal aesthetic (theme-as-resource) · itch.io staging = final delivery · autoplay gate in Phase 0–1 · tuning-as-data · victory ≈ run 3–5 target · no slot limits / no rerolls · Elite = scaled Tank, no new AI.
