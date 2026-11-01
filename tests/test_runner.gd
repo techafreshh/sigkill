@@ -34,6 +34,9 @@ func run_all() -> void:
 		"test_theme_resource_exists",
 		"test_player_is_cursor_block",
 		"test_player_moves_all_axes",
+		"test_player_has_accel_tuning",
+		"test_player_velocity_ramps",
+		"test_player_friction_decays",
 		"test_camera_follows_player",
 		"test_ground_renders",
 		"test_spawner_default_cap_is_300",
@@ -175,6 +178,84 @@ func test_player_moves_all_axes() -> bool:
 	Input.action_release("move_right")
 	var diag: Vector2 = player.global_position - diag_before
 	ok = assert_true(absf(diag.x) > 0.0 and absf(diag.y) > 0.0, "diagonal input moves both axes") and ok
+	_release_move_actions()
+	instance.queue_free()
+	return ok
+
+
+func test_player_has_accel_tuning() -> bool:
+	var ok := true
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as CharacterBody2D
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null:
+		instance.queue_free()
+		return false
+	ok = assert_eq(float(player.get("speed")), 220.0, "player default speed is 220") and ok
+	ok = assert_true(float(player.get("acceleration")) > 0.0, "player acceleration positive") and ok
+	ok = assert_true(float(player.get("friction")) > 0.0, "player friction positive") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_player_velocity_ramps() -> bool:
+	var ok := true
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as CharacterBody2D
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null:
+		instance.queue_free()
+		return false
+	_release_move_actions()
+	var speed: float = float(player.get("speed"))
+	Input.action_press("move_right")
+	for i in 3:
+		await physics_frame
+	var early: Vector2 = player.velocity
+	ok = assert_true(early.x > 0.0 and early.x < speed, "velocity ramps, not snapped (x=%.1f)" % early.x) and ok
+	for i in 30:
+		await physics_frame
+	var full: Vector2 = player.velocity
+	ok = assert_true(absf(full.x - speed) < speed * 0.05, "velocity reaches full speed (x=%.1f)" % full.x) and ok
+	_release_move_actions()
+	instance.queue_free()
+	return ok
+
+
+func test_player_friction_decays() -> bool:
+	var ok := true
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as CharacterBody2D
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null:
+		instance.queue_free()
+		return false
+	_release_move_actions()
+	Input.action_press("move_right")
+	for i in 60:
+		await physics_frame
+	Input.action_release("move_right")
+	var peak: float = player.velocity.length()
+	for i in 5:
+		await physics_frame
+	var sliding: float = player.velocity.length()
+	ok = assert_true(sliding < peak and sliding > 0.0, "friction decays gradually (%.1f -> %.1f)" % [peak, sliding]) and ok
+	for i in 60:
+		await physics_frame
+	var rest: float = player.velocity.length()
+	ok = assert_true(rest < 5.0, "velocity settles near zero (%.2f)" % rest) and ok
 	_release_move_actions()
 	instance.queue_free()
 	return ok
