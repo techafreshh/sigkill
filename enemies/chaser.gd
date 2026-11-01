@@ -3,6 +3,7 @@ extends CharacterBody2D
 const TERMINAL_THEME := preload("res://data/theme.tres")
 
 @export var speed := 140.0
+@export var acceleration := 600.0
 @export var target_path: NodePath
 
 var target: Node2D
@@ -18,16 +19,16 @@ func _ready() -> void:
 	queue_redraw()
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if not is_instance_valid(target):
-		velocity = Vector2.ZERO
+		velocity = velocity.move_toward(Vector2.ZERO, acceleration * delta)
 		move_and_slide()
 		return
 	var direction: Vector2 = target.global_position - global_position
+	var desired := Vector2.ZERO
 	if direction.length() > 1.0:
-		velocity = direction.normalized() * speed
-	else:
-		velocity = Vector2.ZERO
+		desired = direction.normalized() * speed
+	velocity = velocity.move_toward(desired, acceleration * delta)
 	move_and_slide()
 
 
