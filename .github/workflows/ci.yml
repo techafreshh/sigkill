@@ -6,9 +6,16 @@ on:
   pull_request:
 
 jobs:
+  # Single-job CI shares one install/import cache.
+  # Ordering invariant: steps must stay ordered `Import project` -> consumers
+  # (`Run headless tests`, `Autoplay verdict`, `Export Web`). Any future
+  # matrix/multi-job split must chain jobs with `needs:` starting from an
+  # import job and must reuse the same `.godot/` cache key below.
   ci:
     name: ci
     runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: 4.7.0
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,7 +23,7 @@ jobs:
       - name: Setup Godot
         uses: chickensoft-games/setup-godot@v2
         with:
-          version: 4.7.0
+          version: ${{ env.GODOT_VERSION }}
           use-dotnet: false
           include-templates: true
 
@@ -28,9 +35,22 @@ jobs:
           test -f project.godot
           test -f .github/workflows/ci.yml
 
+      - name: Restore import cache
+        uses: actions/cache@v4
+        with:
+          path: .godot/
+          key: godot-import-${{ env.GODOT_VERSION }}-${{ hashFiles('project.godot', 'export_presets.cfg', '**/*.gd', '**/*.tscn', '**/*.tres') }}
+          restore-keys: |
+            godot-import-${{ env.GODOT_VERSION }}-
+
       - name: Import project
         timeout-minutes: 10
         run: godot --headless --path . --import
+
+      - name: Verify import-before-test ordering
+        timeout-minutes: 5
+        run: |
+          test -d .godot || { echo "import cache missing: Import project must run before tests/autoplay/export"; exit 1; }
 
       - name: Reference check
         timeout-minutes: 5
