@@ -45,6 +45,7 @@ func run_all() -> void:
 		"test_teardown_resets_fixture_state",
 		"test_spawner_ring_spawns_offscreen",
 		"test_spawner_enforces_cap",
+		"test_spawner_halts_when_run_inactive",
 		"test_spawner_preserves_overshoot",
 		"test_spawner_peak_tracks_and_resets",
 		"test_spawner_zero_interval_no_hang",
@@ -515,6 +516,64 @@ func test_spawner_enforces_cap() -> bool:
 	var alive := get_nodes_in_group("enemies").size()
 	ok = assert_true(alive <= 5, "spawner respects overridden cap (alive=%d)" % alive) and ok
 	instance.queue_free()
+	return ok
+
+
+func test_spawner_halts_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 0.05)
+	spawner.set("max_entities", 1000)
+	for i in 30:
+		await physics_frame
+	ok = assert_true(get_nodes_in_group("enemies").size() > 0, "spawner produces enemies while active") and ok
+	var alive_baseline := get_nodes_in_group("enemies").size()
+	var peak_baseline := int(spawner.get("peak_alive"))
+	var tick_baseline := int(spawner.get("_tick"))
+	spawner.set("_accum", 0.0)
+	instance.set("run_active", false)
+	for i in 60:
+		await physics_frame
+	ok = assert_eq(get_nodes_in_group("enemies").size(), alive_baseline, "inactive run spawns nothing") and ok
+	ok = assert_eq(int(spawner.get("peak_alive")), peak_baseline, "peak_alive frozen while inactive") and ok
+	ok = assert_eq(float(spawner.get("_accum")), 0.0, "spawn debt frozen while inactive") and ok
+	ok = assert_eq(int(spawner.get("_tick")), tick_baseline, "tick frozen while inactive") and ok
+	spawner.call("_try_spawn")
+	ok = assert_eq(get_nodes_in_group("enemies").size(), alive_baseline, "direct _try_spawn spawns nothing while inactive") and ok
+	ok = assert_eq(int(spawner.get("peak_alive")), peak_baseline, "direct _try_spawn leaves peak while inactive") and ok
+	instance.set("run_active", true)
+	for i in 60:
+		await physics_frame
+		if get_nodes_in_group("enemies").size() > alive_baseline:
+			break
+	ok = assert_true(get_nodes_in_group("enemies").size() > alive_baseline, "spawning resumes when run reactivates") and ok
+	instance.queue_free()
+	await _clear_enemies()
+	var lone: Node = load("res://spawner.gd").new()
+	root.add_child(lone)
+	lone.set_physics_process(false)
+	lone.set("spawn_interval", 0.5)
+	lone.set("batch_size", 1)
+	lone.set("max_entities", 1000)
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	lone.set("player", dummy)
+	await process_frame
+	lone.call("_physics_process", 0.6)
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 1, "detached spawner defaults to active") and ok
+	lone.queue_free()
+	dummy.queue_free()
+	await _clear_enemies()
 	return ok
 
 
