@@ -42,6 +42,7 @@ func run_all() -> void:
 		"test_spawner_default_cap_is_300",
 		"test_player_in_player_group",
 		"test_chaser_in_enemies_group",
+		"test_teardown_resets_fixture_state",
 		"test_spawner_ring_spawns_offscreen",
 		"test_spawner_enforces_cap",
 		"test_spawner_preserves_overshoot",
@@ -67,6 +68,7 @@ func run_all() -> void:
 		"test_nominal_seconds_math",
 		"test_measured_clock_accumulates",
 	]
+	await _teardown_test_fixtures()
 	for t: String in tests:
 		var outcome: Variant = await call(t)
 		if outcome == true:
@@ -75,6 +77,7 @@ func run_all() -> void:
 		else:
 			failed += 1
 			push_error("FAIL %s: did not finish (runtime error?)" % t)
+		await _teardown_test_fixtures()
 
 
 func _release_move_actions() -> void:
@@ -332,6 +335,14 @@ func _clear_enemies() -> void:
 	await process_frame
 
 
+func _teardown_test_fixtures() -> void:
+	_release_move_actions()
+	for child: Node in root.get_children().duplicate():
+		child.queue_free()
+	await process_frame
+	await process_frame
+
+
 func _viewport_radius() -> float:
 	var viewport_size := root.get_visible_rect().size
 	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
@@ -407,6 +418,29 @@ func test_chaser_in_enemies_group() -> bool:
 	root.add_child(chaser)
 	ok = assert_true(chaser.is_in_group("enemies"), "chaser joins enemies group") and ok
 	chaser.queue_free()
+	return ok
+
+
+func test_teardown_resets_fixture_state() -> bool:
+	var ok := true
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "runner teardown cleared prior enemies before test") and ok
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawned := false
+	for i in 90:
+		await physics_frame
+		if get_nodes_in_group("enemies").size() > 0:
+			spawned = true
+			break
+	ok = assert_true(spawned, "fixture produced enemies before teardown") and ok
+	Input.action_press("move_right")
+	ok = assert_true(Input.is_action_pressed("move_right"), "move input pressed before teardown") and ok
+	await _teardown_test_fixtures()
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "teardown clears enemies group") and ok
+	ok = assert_true(not Input.is_action_pressed("move_right"), "teardown releases move input") and ok
 	return ok
 
 

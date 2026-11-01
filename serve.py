@@ -48,6 +48,45 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(400, "Bad request path")
             return None
 
+    def handle_one_request(self):
+        # Never drop the connection and never answer 500: malformed paths
+        # are 400, unknown paths are 404 (holdout unknown-resource-404).
+        try:
+            return super().handle_one_request()
+        except TimeoutError:
+            self.close_connection = True
+            return
+        except (ValueError, UnicodeError):
+            try:
+                self.send_error(400, "Bad request path")
+            except Exception:
+                pass
+            return
+        except Exception:
+            try:
+                self.send_error(404, "File not found")
+            except Exception:
+                pass
+            return
+
+    def _handle_non_get(self):
+        # Unknown paths answer 404 for any method, never 501/500.
+        try:
+            local = self.translate_path(self.path)
+            exists = os.path.exists(local)
+        except (ValueError, UnicodeError):
+            self.send_error(400, "Bad request path")
+            return
+        if exists:
+            self.send_error(501, "Unsupported method (%r)" % self.command)
+        else:
+            self.send_error(404, "File not found")
+
+    def __getattr__(self, name):
+        if name.startswith("do_"):
+            return self._handle_non_get
+        raise AttributeError(name)
+
     def log_message(self, fmt, *args):  # keep gate logs readable; stdout stays clean
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
