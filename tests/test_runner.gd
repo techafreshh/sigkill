@@ -48,6 +48,7 @@ func run_all() -> void:
 		"test_spawner_preserves_overshoot",
 		"test_spawner_peak_tracks_and_resets",
 		"test_spawner_zero_interval_no_hang",
+		"test_spawner_without_player_spawns_nothing",
 		"test_spawner_quiet_by_default",
 		"test_spawner_verbose_reemits_diagnostics",
 		"test_chaser_steers_toward_player",
@@ -526,6 +527,9 @@ func test_spawner_preserves_overshoot() -> bool:
 	spawner.set("spawn_interval", 0.5)
 	spawner.set("batch_size", 1)
 	spawner.set("max_entities", 1000)
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	spawner.set("player", dummy)
 	await process_frame
 	spawner.call("_physics_process", 0.6)
 	var after_first := get_nodes_in_group("enemies").size()
@@ -539,6 +543,7 @@ func test_spawner_preserves_overshoot() -> bool:
 	var after_long := get_nodes_in_group("enemies").size()
 	ok = assert_eq(after_long, 2, "long frame fires two batches") and ok
 	spawner.queue_free()
+	dummy.queue_free()
 	await _clear_enemies()
 	return ok
 
@@ -552,6 +557,9 @@ func test_spawner_peak_tracks_and_resets() -> bool:
 	spawner.set("spawn_interval", 0.5)
 	spawner.set("batch_size", 1)
 	spawner.set("max_entities", 1000)
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	spawner.set("player", dummy)
 	await process_frame
 	spawner.call("_physics_process", 0.6)
 	var tracked := get_nodes_in_group("enemies").size()
@@ -564,6 +572,7 @@ func test_spawner_peak_tracks_and_resets() -> bool:
 	spawner.call("_physics_process", 0.0)
 	ok = assert_true(int(spawner.call("get_peak_alive")) >= tracked, "peak re-tracks live enemies after reset") and ok
 	spawner.queue_free()
+	dummy.queue_free()
 	await _clear_enemies()
 	return ok
 
@@ -586,6 +595,36 @@ func test_spawner_zero_interval_no_hang() -> bool:
 	return ok
 
 
+func test_spawner_without_player_spawns_nothing() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var stashed: Array = await _stash_player_group()
+	ok = assert_true(get_nodes_in_group("player").is_empty(), "no player present for playerless spawn") and ok
+	if not ok:
+		_restore_player_group(stashed)
+		return false
+	var holder := Node.new()
+	holder.name = "PlayerlessHolder"
+	root.add_child(holder)
+	var spawner: Node = load("res://spawner.gd").new()
+	spawner.set("player_path", NodePath(""))
+	holder.add_child(spawner)
+	spawner.set_physics_process(false)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("batch_size", 1)
+	spawner.set("max_entities", 1000)
+	await process_frame
+	spawner.set("player", null)
+	spawner.call("_physics_process", 0.6)
+	spawner.call("_try_spawn")
+	var spawned := get_nodes_in_group("enemies").size()
+	ok = assert_eq(spawned, 0, "playerless spawner spawns nothing") and ok
+	holder.queue_free()
+	await _clear_enemies()
+	_restore_player_group(stashed)
+	return ok
+
+
 func test_spawner_quiet_by_default() -> bool:
 	var ok := true
 	await _clear_enemies()
@@ -599,6 +638,9 @@ func test_spawner_quiet_by_default() -> bool:
 	spawner.set("spawn_interval", 0.5)
 	spawner.set("batch_size", 1)
 	spawner.set("max_entities", 1000)
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	spawner.set("player", dummy)
 	await process_frame
 	spawner.call("_physics_process", 0.6)
 	var spawned := get_nodes_in_group("enemies").size()
@@ -611,6 +653,7 @@ func test_spawner_quiet_by_default() -> bool:
 	ok = assert_true(source.contains("SPAWNER_STATUS"), "spawner retains SPAWNER_STATUS string") and ok
 	ok = assert_true(source.contains("SPAWNER_SPAWN"), "spawner retains SPAWNER_SPAWN string") and ok
 	spawner.queue_free()
+	dummy.queue_free()
 	await _clear_enemies()
 	return ok
 
@@ -624,11 +667,15 @@ func test_spawner_verbose_reemits_diagnostics() -> bool:
 	quiet.set("spawn_interval", 0.5)
 	quiet.set("batch_size", 1)
 	quiet.set("max_entities", 1000)
+	var quiet_dummy := Node2D.new()
+	root.add_child(quiet_dummy)
+	quiet.set("player", quiet_dummy)
 	await process_frame
 	quiet.call("_physics_process", 1.1)
 	var quiet_spawned := get_nodes_in_group("enemies").size()
 	var quiet_peak := int(quiet.get("peak_alive"))
 	quiet.queue_free()
+	quiet_dummy.queue_free()
 	await _clear_enemies()
 	var loud: Node = load("res://spawner.gd").new()
 	ok = assert_true(loud != null, "spawner script instantiates") and ok
@@ -641,6 +688,9 @@ func test_spawner_verbose_reemits_diagnostics() -> bool:
 	loud.set("spawn_interval", 0.5)
 	loud.set("batch_size", 1)
 	loud.set("max_entities", 1000)
+	var loud_dummy := Node2D.new()
+	root.add_child(loud_dummy)
+	loud.set("player", loud_dummy)
 	await process_frame
 	loud.call("_physics_process", 1.1)
 	var loud_spawned := get_nodes_in_group("enemies").size()
@@ -652,6 +702,7 @@ func test_spawner_verbose_reemits_diagnostics() -> bool:
 	loud.call("_physics_process", 0.0)
 	ok = assert_true(int(loud.get("peak_alive")) >= get_nodes_in_group("enemies").size(), "verbose status tick tracks peak_alive") and ok
 	loud.queue_free()
+	loud_dummy.queue_free()
 	await _clear_enemies()
 	return ok
 
