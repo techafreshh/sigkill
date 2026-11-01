@@ -58,6 +58,8 @@ func run_all() -> void:
 		"test_chaser_reacquires_player",
 		"test_chaser_player_collide",
 		"test_chaser_does_not_pass_through_player",
+		"test_player_shoves_through_encirclement",
+		"test_chaser_stops_at_contact_band",
 		"test_main_exposes_run_api",
 		"test_main_clock_accumulates",
 		"test_main_kill_counter_and_reset",
@@ -877,6 +879,86 @@ func test_chaser_reacquires_player() -> bool:
 	ok = assert_true(after < before, "re-acquired chaser closes distance (%.1f -> %.1f)" % [before, after]) and ok
 	chaser.queue_free()
 	dummy.queue_free()
+	return ok
+
+
+func test_player_shoves_through_encirclement() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as CharacterBody2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	_release_move_actions()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var center: Vector2 = player.global_position
+	var ring := 10
+	for i in ring:
+		var chaser := packed.instantiate() as CharacterBody2D
+		root.add_child(chaser)
+		var angle := TAU * float(i) / float(ring)
+		chaser.global_position = center + Vector2(cos(angle), sin(angle)) * 40.0
+		chaser.set("target", player)
+	for i in 90:
+		await physics_frame
+	var before: Vector2 = player.global_position
+	Input.action_press("move_right")
+	for i in 60:
+		await physics_frame
+	Input.action_release("move_right")
+	var pushed: float = player.global_position.distance_to(before)
+	ok = assert_true(pushed > 50.0, "player shoves through encirclement (%.1f px)" % pushed) and ok
+	_release_move_actions()
+	instance.queue_free()
+	return ok
+
+
+func test_chaser_stops_at_contact_band() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as CharacterBody2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	_release_move_actions()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = player.global_position + Vector2(100, 0)
+	chaser.set("target", player)
+	await process_frame
+	for i in 120:
+		await physics_frame
+	var final_dist: float = chaser.global_position.distance_to(player.global_position)
+	ok = assert_true(final_dist >= 15.0 and final_dist <= 60.0, "chaser holds standoff (dist=%.1f)" % final_dist) and ok
+	chaser.queue_free()
+	instance.queue_free()
 	return ok
 
 
