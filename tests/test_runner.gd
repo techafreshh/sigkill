@@ -36,6 +36,11 @@ func run_all() -> void:
 		"test_player_moves_all_axes",
 		"test_camera_follows_player",
 		"test_ground_renders",
+		"test_spawner_default_cap_is_300",
+		"test_chaser_in_enemies_group",
+		"test_spawner_ring_spawns_offscreen",
+		"test_spawner_enforces_cap",
+		"test_chaser_steers_toward_player",
 		"test_sanity_math",
 		"test_nominal_seconds_math",
 		"test_measured_clock_accumulates",
@@ -216,6 +221,143 @@ func test_ground_renders() -> bool:
 	if ground.has_method("get_cell_size"):
 		ok = assert_eq(float(ground.call("get_cell_size")), 64.0, "ground cell size") and ok
 	ok = assert_true((ground as Node2D).z_index < 0, "ground renders behind player") and ok
+	instance.queue_free()
+	return ok
+
+
+func _clear_enemies() -> void:
+	for node: Node in get_nodes_in_group("enemies"):
+		node.queue_free()
+	await process_frame
+	await process_frame
+
+
+func _viewport_radius() -> float:
+	var viewport_size := root.get_visible_rect().size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		viewport_size = Vector2(1280, 720)
+	return 0.5 * viewport_size.length()
+
+
+func _mean_enemy_distance_to(player: Node2D, enemies: Array) -> float:
+	var total := 0.0
+	var count := 0
+	for enemy: Node in enemies:
+		if is_instance_valid(enemy) and enemy is Node2D and is_instance_valid(player):
+			total += (enemy as Node2D).global_position.distance_to((player as Node2D).global_position)
+			count += 1
+	if count == 0:
+		return -1.0
+	return total / float(count)
+
+
+func test_spawner_default_cap_is_300() -> bool:
+	var ok := true
+	var spawner: Node = load("res://spawner.gd").new()
+	ok = assert_true(spawner != null, "spawner script instantiates") and ok
+	if spawner == null:
+		return false
+	ok = assert_eq(int(spawner.get("max_entities")), 300, "spawner default cap is 300") and ok
+	spawner.free()
+	return ok
+
+
+func test_chaser_in_enemies_group() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate()
+	root.add_child(chaser)
+	ok = assert_true(chaser.is_in_group("enemies"), "chaser joins enemies group") and ok
+	chaser.queue_free()
+	return ok
+
+
+func test_spawner_ring_spawns_offscreen() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null:
+		instance.queue_free()
+		return false
+	for i in 40:
+		await physics_frame
+	var enemies := get_nodes_in_group("enemies")
+	ok = assert_true(enemies.size() > 0, "spawner produced enemies") and ok
+	if enemies.is_empty():
+		instance.queue_free()
+		return false
+	var radius := _viewport_radius()
+	var farthest := 0.0
+	for enemy: Node in enemies:
+		var dist: float = (enemy as Node2D).global_position.distance_to(player.global_position)
+		if dist > farthest:
+			farthest = dist
+	ok = assert_true(farthest > radius, "newest spawn outside viewport (dist=%.1f radius=%.1f)" % [farthest, radius]) and ok
+	instance.queue_free()
+	return ok
+
+
+func test_spawner_enforces_cap() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("max_entities", 5)
+	spawner.set("spawn_interval", 0.05)
+	for i in 120:
+		await physics_frame
+	var alive := get_nodes_in_group("enemies").size()
+	ok = assert_true(alive <= 5, "spawner respects overridden cap (alive=%d)" % alive) and ok
+	instance.queue_free()
+	return ok
+
+
+func test_chaser_steers_toward_player() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	for i in 90:
+		await physics_frame
+	var tracked := get_nodes_in_group("enemies").duplicate()
+	ok = assert_true(tracked.size() > 0, "spawner produced enemies to track") and ok
+	if tracked.is_empty():
+		instance.queue_free()
+		return false
+	var before := _mean_enemy_distance_to(player, tracked)
+	spawner.set("spawn_interval", 3600.0)
+	for i in 60:
+		await physics_frame
+	var after := _mean_enemy_distance_to(player, tracked)
+	ok = assert_true(after >= 0.0, "tracked enemies still alive") and ok
+	ok = assert_true(after < before, "enemies steer toward player (%.1f -> %.1f)" % [before, after]) and ok
 	instance.queue_free()
 	return ok
 
