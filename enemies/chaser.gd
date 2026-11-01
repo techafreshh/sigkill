@@ -6,7 +6,14 @@ const TERMINAL_THEME := preload("res://data/theme.tres")
 @export var acceleration := 600.0
 @export var standoff_distance := 28.0
 @export var target_path: NodePath
+## Tunable base HP until the data-table lap owns balance.
+@export var max_health := 3.0
 
+signal died
+signal health_changed(current: float, maximum: float)
+
+var health: float
+var _dead := false
 var target: Node2D
 var theme: TerminalTheme
 
@@ -14,6 +21,7 @@ var theme: TerminalTheme
 func _ready() -> void:
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	add_to_group("enemies")
+	health = max_health
 	theme = TERMINAL_THEME as TerminalTheme
 	if target_path != null and not target_path.is_empty():
 		target = get_node_or_null(target_path) as Node2D
@@ -29,6 +37,27 @@ func _resolve_target() -> void:
 		return
 	if get_tree() != null:
 		target = get_tree().get_first_node_in_group("player") as Node2D
+
+
+func is_dead() -> bool:
+	return _dead or health <= 0.0
+
+
+func get_health() -> float:
+	return health
+
+
+func take_damage(amount: float) -> void:
+	if _dead or is_queued_for_deletion():
+		return
+	if amount <= 0.0:
+		return
+	health = maxf(health - amount, 0.0)
+	health_changed.emit(health, max_health)
+	if health <= 0.0:
+		_dead = true
+		died.emit()
+		queue_free()
 
 
 func _physics_process(delta: float) -> void:
