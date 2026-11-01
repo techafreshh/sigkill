@@ -44,6 +44,10 @@ func run_all() -> void:
 		"test_spawner_ring_spawns_offscreen",
 		"test_spawner_enforces_cap",
 		"test_chaser_steers_toward_player",
+		"test_main_exposes_run_api",
+		"test_main_clock_accumulates",
+		"test_main_kill_counter_and_reset",
+		"test_main_hud_updates",
 		"test_sanity_math",
 		"test_nominal_seconds_math",
 		"test_measured_clock_accumulates",
@@ -439,6 +443,82 @@ func test_chaser_steers_toward_player() -> bool:
 	var after := _mean_enemy_distance_to(player, tracked)
 	ok = assert_true(after >= 0.0, "tracked enemies still alive") and ok
 	ok = assert_true(after < before, "enemies steer toward player (%.1f -> %.1f)" % [before, after]) and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_exposes_run_api() -> bool:
+	var ok := true
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	for method_name: String in ["register_kill", "get_elapsed", "get_kills", "is_run_active", "reset_run"]:
+		ok = assert_true(instance.has_method(method_name), "main exposes " + method_name) and ok
+	ok = assert_true(instance.get_node_or_null("Player") != null, "main wires Player") and ok
+	ok = assert_true(instance.get_node_or_null("Spawner") != null, "main wires Spawner") and ok
+	ok = assert_true(instance.get_node_or_null("Ground") != null, "main wires Ground") and ok
+	ok = assert_true(instance.get_node_or_null("StatusLabel") != null, "main wires StatusLabel") and ok
+	ok = assert_true(bool(instance.call("is_run_active")), "run starts active") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_clock_accumulates() -> bool:
+	var ok := true
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var before: float = float(instance.call("get_elapsed"))
+	var frames := 60
+	for i in frames:
+		await physics_frame
+	var after: float = float(instance.call("get_elapsed"))
+	var grown := after - before
+	var expected := float(frames) / 60.0
+	ok = assert_true(grown > 0.0, "run clock advances") and ok
+	ok = assert_true(grown > expected * 0.5, "run clock above generous lower bound") and ok
+	ok = assert_true(grown < expected * 2.0 + 0.05, "run clock below generous upper bound") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_kill_counter_and_reset() -> bool:
+	var ok := true
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	instance.call("register_kill")
+	instance.call("register_kill")
+	ok = assert_eq(int(instance.call("get_kills")), 2, "kill counter increments") and ok
+	instance.call("reset_run")
+	ok = assert_eq(int(instance.call("get_kills")), 0, "reset zeroes kills") and ok
+	ok = assert_eq(float(instance.call("get_elapsed")), 0.0, "reset zeroes clock") and ok
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_hud_updates() -> bool:
+	var ok := true
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	for i in 30:
+		await physics_frame
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if label == null:
+		instance.queue_free()
+		return false
+	ok = assert_true(label.text != "SIGKILL skeleton", "HUD leaves skeleton text") and ok
+	ok = assert_true(label.text.contains("KILLS="), "HUD reflects kill state") and ok
 	instance.queue_free()
 	return ok
 
