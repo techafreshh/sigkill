@@ -30,6 +30,12 @@ func reset_peak() -> void:
 	peak_alive = 0
 
 
+func _update_peak() -> void:
+	var alive := get_tree().get_nodes_in_group("enemies").size()
+	if alive > peak_alive:
+		peak_alive = alive
+
+
 func _is_run_active() -> bool:
 	var coordinator := get_parent()
 	if coordinator == null or not is_instance_valid(coordinator):
@@ -49,19 +55,14 @@ func _physics_process(delta: float) -> void:
 	if not _is_run_active():
 		return
 	_tick += 1
-	var alive := get_tree().get_nodes_in_group("enemies").size()
-	if alive > peak_alive:
-		peak_alive = alive
+	_update_peak()
 	_accum += delta
 	while spawn_interval > 0.0 and _accum >= spawn_interval:
 		_accum -= spawn_interval
 		_try_spawn()
-	if _tick % STATUS_EVERY_TICKS == 0:
+	if _tick % STATUS_EVERY_TICKS == 0 and verbose:
 		var current := get_tree().get_nodes_in_group("enemies").size()
-		if current > peak_alive:
-			peak_alive = current
-		if verbose:
-			print("SPAWNER_STATUS get_nodes_in_group(\"enemies\").size()=%d MAX_ALIVE=%d" % [current, peak_alive])
+		print("SPAWNER_STATUS get_nodes_in_group(\"enemies\").size()=%d MAX_ALIVE=%d" % [current, peak_alive])
 
 
 func _resolve_player() -> void:
@@ -91,8 +92,6 @@ func _try_spawn() -> void:
 	if not _is_run_active():
 		return
 	var alive := get_tree().get_nodes_in_group("enemies").size()
-	if alive > peak_alive:
-		peak_alive = alive
 	if alive >= max_entities:
 		return
 	var room: int = mini(batch_size, max_entities - alive)
@@ -118,8 +117,7 @@ func _try_spawn() -> void:
 		chaser.global_position = center + Vector2(cos(angle), sin(angle)) * dist
 		if is_instance_valid(player):
 			chaser.set("target", player)
-		var now_alive := get_tree().get_nodes_in_group("enemies").size()
-		if now_alive > peak_alive:
-			peak_alive = now_alive
 		if verbose:
+			var now_alive := get_tree().get_nodes_in_group("enemies").size()
 			print("SPAWNER_SPAWN SPAWN_DIST=%.2f MIN_VIEW_RADIUS=%.2f ALIVE=%d" % [dist, radius, now_alive])
+	_update_peak()
