@@ -169,7 +169,7 @@ No HTTP API exists in the product; the factory's scenario gates wrap the **web e
 - A PR that fails any of these cannot merge.
 
 **Runtime scenario (`runtime.json`, verify gate):**
-- `start`: standard static file server over the exported web build (`python3 -m http.server $PORT` in the export directory — a standard server, never a bespoke supervisor).
+- `start`: hardened stdlib static file server over the exported web build (`python3 serve.py $PORT`, repo root) — stdlib semantics, but malformed encodings/null bytes answer 400/404 instead of dropping the connection the way raw `python3 -m http.server` does (see `serve.py` docstring).
 - `readiness_path`: `/index.html`.
 - Probes: `status:200` on `/index.html`; `status:200` on the `.wasm` and `.pck` payload paths; `body_contains:` expected shell markers.
 
