@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "factory/**"]
+  pull_request:
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.0
+          use-dotnet: false
+          include-templates: true
+
+      - name: Toolchain check
+        timeout-minutes: 5
+        run: |
+          godot --version | tee version.txt
+          grep -q "4.7.stable" version.txt
+          test -f project.godot
+          test -f .github/workflows/ci.yml
+
+      - name: Import project
+        timeout-minutes: 10
+        run: godot --headless --path . --import
+
+      - name: Reference check
+        timeout-minutes: 5
+        run: python3 .agents/skills/godot-nodes-scenes/scripts/check_godot_project.py .
+
+      - name: Run headless tests
+        timeout-minutes: 5
+        run: godot --headless --path . --script res://tests/test_runner.gd
+
+      - name: Autoplay verdict (60 simulated seconds)
+        timeout-minutes: 10
+        run: |
+          godot --headless --path . --script res://autopilot/autopilot.gd > autoplay.log 2>&1
+          code=$?
+          cat autoplay.log
+          if grep -q "SCRIPT ERROR" autoplay.log; then
+            echo "autoplay: SCRIPT ERROR found in log"
+            exit 1
+          fi
+          grep -q "AUTOPLAY_VERDICT.*ERRORS=0" autoplay.log
+          sim=$(grep -o "SIM_SECONDS=[0-9.]*" autoplay.log | head -n 1 | cut -d= -f2)
+          test -n "$sim"
+          awk "BEGIN { exit !( ${sim} + 0 >= 60 ) }"
+          exit $code
+
+      - name: Export Web
+        timeout-minutes: 10
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --export-release "Web" build/web/index.html
+          test -f build/web/index.html
+          ls -la build/web/
+
+      - name: Upload Web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: build/web/
