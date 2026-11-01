@@ -16,6 +16,7 @@ z_index = -100
 script = ExtResource("3")
 
 [node name="Player" type="CharacterBody2D" parent="."]
+groups=["player"]
 position = Vector2(640, 360)
 script = ExtResource("2")
 
