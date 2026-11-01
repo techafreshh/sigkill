@@ -30,11 +30,24 @@ func reset_peak() -> void:
 	peak_alive = 0
 
 
+func _is_run_active() -> bool:
+	var coordinator := get_parent()
+	if coordinator == null or not is_instance_valid(coordinator):
+		return true
+	if coordinator.has_method("is_run_active"):
+		return bool(coordinator.call("is_run_active"))
+	if "run_active" in coordinator:
+		return bool(coordinator.get("run_active"))
+	return true
+
+
 func _ready() -> void:
 	_resolve_player()
 
 
 func _physics_process(delta: float) -> void:
+	if not _is_run_active():
+		return
 	_tick += 1
 	var alive := get_tree().get_nodes_in_group("enemies").size()
 	if alive > peak_alive:
@@ -75,6 +88,8 @@ func _spawn_center() -> Vector2:
 
 
 func _try_spawn() -> void:
+	if not _is_run_active():
+		return
 	var alive := get_tree().get_nodes_in_group("enemies").size()
 	if alive > peak_alive:
 		peak_alive = alive
