@@ -200,7 +200,7 @@ Wall-clock time is governed by factory ticks, not human hours; phases are sized 
 
 **Phase 0 — Walking skeleton + toolchain** *(before any gameplay issue)*
 - Goal: the pipeline exists and proves itself on a stub.
-- Deliverables: [ ] CI workflow (lap-1 deliverable) running headless unit-test skeleton on every PR · [ ] toolchain verified in-lane: lap 1 confirms `godot --version` reports 4.7-stable and the web export templates resolve (factory `godot-base` snapshot, prebaked 2026-11-01 — no install issue needed) · [ ] stub web build (empty Godot project) auto-exported on merge and pushed to the itch.io staging channel · [ ] autoplay-verdict skeleton wired into CI (asserts: boots, runs 60 simulated seconds, zero errors)
+- Deliverables: [ ] CI workflow (lap-1 deliverable) running headless unit-test skeleton on every PR · [ ] toolchain verified in-lane: lap 1 confirms `godot --version` reports 4.7-stable and the web export templates resolve (factory `godot-base` snapshot, prebaked 2026-11-01 — no install issue needed) · [ ] stub web build auto-exported on merge and artifact-verified in CI (itch.io staging push DEFERRED — sliced as its own issue once the operator provisions itch.io + `BUTLER_API_KEY`, see operator checklist) · [ ] autoplay-verdict skeleton wired into CI (asserts: boots, runs 60 simulated seconds, zero errors)
 - Validation: a merged PR visibly updates the staging build; CI red/green demonstrably gates a PR.
 
 **Phase 1 — Core loop (brief M1+M2): move, dodge, kill**
@@ -250,7 +250,7 @@ Wall-clock time is governed by factory ticks, not human hours; phases are sized 
 **Operator checklist (never becomes a factory issue):**
 - [x] Create GitHub repo `techafreshh/sigkill`, push this PRD to `.agents/PRDs/PRD.md` (done 2026-11-01)
 - [x] Factory onboarding (done 2026-11-01): slug `sigkill`, scenario ports 8140/8141, env.mode **instabox** on the `godot-base` snapshot, models `meta/muse-spark-1.3-contributor` (plan/implement/review **xhigh**, default high), squash-merge, `required_checks ["*"]`, 3 attempts
-- [ ] Create itch.io account + project page; generate `butler` API key; add to GitHub Actions secrets (needed by the walking-skeleton lap)
+- [ ] When the itch.io deferral ends: create the page, generate the butler API key, add the `BUTLER_API_KEY` GitHub secret, then slice the staging-push issue (a one-issue batch — the wheel can only claim it once the secret exists)
 - [ ] Slice Phase 0 + Phase 1 clusters only; hold later clusters until verdicts
 
 **Slice-gating recap:** playtest verdicts (3 fields: fun yes/no · what felt wrong · one change) are the throttle. No cluster's issues enter the backlog until the previous build's verdict is filed.
