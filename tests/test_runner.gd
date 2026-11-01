@@ -73,6 +73,11 @@ func run_all() -> void:
 		"test_sanity_math",
 		"test_nominal_seconds_math",
 		"test_measured_clock_accumulates",
+		"test_bolt_child_of_player_with_timer",
+		"test_bolt_fires_at_nearest_in_range",
+		"test_projectile_frees_on_first_hit",
+		"test_bolt_ticks_quiet_without_enemies",
+		"test_no_attack_input_action",
 	]
 	await _teardown_test_fixtures()
 	for t: String in tests:
@@ -1347,4 +1352,194 @@ func test_measured_clock_accumulates() -> bool:
 	ok = assert_true(measured > 0.0, "probe measured delta sum is positive") and ok
 	ok = assert_true(measured > expected * 0.5, "probe measured above generous lower bound") and ok
 	ok = assert_true(measured < expected * 2.0 + 0.05, "probe measured below generous upper bound") and ok
+	return ok
+
+
+func test_bolt_child_of_player_with_timer() -> bool:
+	var ok := true
+	ok = assert_true(ResourceLoader.exists("res://weapons/bolt.tscn"), "bolt scene exists") and ok
+	var packed := load("res://weapons/bolt.tscn") as PackedScene
+	ok = assert_true(packed != null, "bolt scene loads as PackedScene") and ok
+	if packed != null:
+		var probe := packed.instantiate()
+		root.add_child(probe)
+		await process_frame
+		var timer := probe.get_node_or_null("Cooldown")
+		ok = assert_true(timer != null and timer is Timer, "bolt scene contains Cooldown Timer") and ok
+		probe.queue_free()
+		await process_frame
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var bolt := instance.get_node_or_null("Player/Bolt")
+	ok = assert_true(bolt != null, "main scene mounts Bolt under Player") and ok
+	if bolt == null:
+		instance.queue_free()
+		return false
+	ok = assert_true(bolt.has_method("_try_fire"), "bolt exposes _try_fire") and ok
+	ok = assert_true(bolt.has_method("_on_cooldown_timeout"), "bolt exposes _on_cooldown_timeout") and ok
+	ok = assert_true(float(bolt.get("cooldown")) > 0.0, "bolt cooldown export positive") and ok
+	ok = assert_true(float(bolt.get("range")) > 0.0, "bolt range export positive") and ok
+	ok = assert_true(float(bolt.get("projectile_speed")) > 0.0, "bolt projectile_speed export positive") and ok
+	var cooldown := bolt.get_node_or_null("Cooldown")
+	ok = assert_true(cooldown != null and cooldown is Timer, "mounted Bolt has Cooldown Timer child") and ok
+	if cooldown != null:
+		ok = assert_true(absf(float((cooldown as Timer).wait_time) - float(bolt.get("cooldown"))) < 0.01, "timer wait_time syncs to cooldown export") and ok
+	var source := FileAccess.get_file_as_string("res://weapons/bolt.gd")
+	ok = assert_true(source.contains("projectiles_spawned="), "bolt logs projectiles_spawned counter") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_bolt_fires_at_nearest_in_range() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	var bolt := instance.get_node_or_null("Player/Bolt")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(bolt != null, "main scene has Bolt") and ok
+	if player == null or spawner == null or bolt == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var center: Vector2 = player.global_position
+	var near := packed.instantiate() as CharacterBody2D
+	root.add_child(near)
+	near.global_position = center + Vector2(180, 0)
+	near.set("speed", 0.0)
+	near.set("target", player)
+	var far := packed.instantiate() as CharacterBody2D
+	root.add_child(far)
+	far.global_position = center + Vector2(-450, 0)
+	far.set("speed", 0.0)
+	far.set("target", player)
+	await process_frame
+	var seen_shot := false
+	var seen_dir := false
+	for i in 300:
+		await physics_frame
+		if int(bolt.get("shots")) >= 1:
+			seen_shot = true
+		for node in get_nodes_in_group("projectiles"):
+			if is_instance_valid(node) and node is Node2D and node.get("direction") != null:
+				var dir: Vector2 = node.get("direction")
+				if dir.normalized().dot(Vector2.RIGHT) > 0.9:
+					seen_dir = true
+			break
+		if seen_shot and seen_dir:
+			break
+	ok = assert_true(seen_shot, "bolt fired at least one shot in 5s with enemy in range") and ok
+	ok = assert_true(seen_dir, "projectile flies toward nearest enemy snapshot (east)") and ok
+	near.queue_free()
+	far.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_projectile_frees_on_first_hit() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = Vector2(120, 0)
+	chaser.set("target", null)
+	chaser.set("velocity", Vector2.ZERO)
+	var projectile = load("res://weapons/projectile.gd").new()
+	root.add_child(projectile)
+	await process_frame
+	projectile.call("launch", Vector2.ZERO, Vector2(120, 0), 700.0, 1, 700.0)
+	ok = assert_eq(projectile.collision_layer, 4, "projectile collision_layer is 4") and ok
+	ok = assert_eq(projectile.collision_mask, 1, "projectile collision_mask is 1") and ok
+	var freed := false
+	for i in 120:
+		await physics_frame
+		if not is_instance_valid(projectile):
+			freed = true
+			break
+	ok = assert_true(freed, "projectile queue-frees on first enemy hit") and ok
+	var source := FileAccess.get_file_as_string("res://weapons/projectile.gd")
+	ok = assert_true(source.contains("pierce_count==0"), "projectile logs pierce_count==0 on hit") and ok
+	chaser.queue_free()
+	return ok
+
+
+func test_bolt_ticks_quiet_without_enemies() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	var bolt := instance.get_node_or_null("Player/Bolt")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(bolt != null, "main scene has Bolt") and ok
+	if player == null or spawner == null or bolt == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "no enemies present for quiet tick") and ok
+	var cooldown := bolt.get_node_or_null("Cooldown") as Timer
+	ok = assert_true(cooldown != null, "bolt has Cooldown timer") and ok
+	Engine.time_scale = 10.0
+	for i in 180:
+		await physics_frame
+	Engine.time_scale = 1.0
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "quiet run spawned nothing") and ok
+	ok = assert_eq(int(bolt.get("shots")), 0, "bolt fires nothing with no target in 30 sim-seconds") and ok
+	ok = assert_true(is_instance_valid(cooldown) and not cooldown.is_stopped(), "bolt timer still ticking after quiet run") and ok
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = player.global_position + Vector2(200, 0)
+	chaser.set("speed", 0.0)
+	chaser.set("target", player)
+	var fired := false
+	for i in 120:
+		await physics_frame
+		if int(bolt.get("shots")) > 0:
+			fired = true
+			break
+	ok = assert_true(fired, "bolt fires within 2s once an enemy enters range") and ok
+	chaser.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_no_attack_input_action() -> bool:
+	var ok := true
+	ok = assert_true(not InputMap.has_action("attack"), "no attack input action exists") and ok
+	var source := FileAccess.get_file_as_string("res://project.godot")
+	ok = assert_true(source.contains("move_up"), "project.godot keeps move_up") and ok
+	ok = assert_true(source.contains("move_down"), "project.godot keeps move_down") and ok
+	ok = assert_true(source.contains("move_left"), "project.godot keeps move_left") and ok
+	ok = assert_true(source.contains("move_right"), "project.godot keeps move_right") and ok
+	ok = assert_true(not source.contains("attack"), "project.godot defines no attack action") and ok
+	ok = assert_true(not source.contains("ui_accept"), "project.godot adds no ui_accept action") and ok
 	return ok

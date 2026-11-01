@@ -1,9 +1,10 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
 [ext_resource type="Script" path="res://player.gd" id="2"]
 [ext_resource type="Script" path="res://world/ground.gd" id="3"]
 [ext_resource type="Script" path="res://spawner.gd" id="4"]
+[ext_resource type="PackedScene" path="res://weapons/bolt.tscn" id="5"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_player"]
 size = Vector2(28, 20)
@@ -25,6 +26,8 @@ shape = SubResource("RectangleShape2D_player")
 [node name="Camera2D" type="Camera2D" parent="Player"]
 position_smoothing_enabled = false
 enabled = true
+
+[node name="Bolt" parent="Player" instance=ExtResource("5")]
 
 [node name="Spawner" type="Node2D" parent="."]
 script = ExtResource("4")
