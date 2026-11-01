@@ -30,8 +30,8 @@ func _physics_process(delta: float) -> void:
 	if alive > peak_alive:
 		peak_alive = alive
 	_accum += delta
-	if _accum >= spawn_interval:
-		_accum = 0.0
+	while spawn_interval > 0.0 and _accum >= spawn_interval:
+		_accum -= spawn_interval
 		_try_spawn()
 	if _tick % STATUS_EVERY_TICKS == 0:
 		var current := get_tree().get_nodes_in_group("enemies").size()

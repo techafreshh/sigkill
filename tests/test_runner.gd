@@ -43,6 +43,8 @@ func run_all() -> void:
 		"test_chaser_in_enemies_group",
 		"test_spawner_ring_spawns_offscreen",
 		"test_spawner_enforces_cap",
+		"test_spawner_preserves_overshoot",
+		"test_spawner_zero_interval_no_hang",
 		"test_chaser_steers_toward_player",
 		"test_chaser_player_collide",
 		"test_chaser_does_not_pass_through_player",
@@ -413,6 +415,50 @@ func test_spawner_enforces_cap() -> bool:
 	var alive := get_nodes_in_group("enemies").size()
 	ok = assert_true(alive <= 5, "spawner respects overridden cap (alive=%d)" % alive) and ok
 	instance.queue_free()
+	return ok
+
+
+func test_spawner_preserves_overshoot() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var spawner: Node = load("res://spawner.gd").new()
+	root.add_child(spawner)
+	spawner.set_physics_process(false)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("batch_size", 1)
+	spawner.set("max_entities", 1000)
+	await process_frame
+	spawner.call("_physics_process", 0.6)
+	var after_first := get_nodes_in_group("enemies").size()
+	ok = assert_eq(after_first, 1, "overshoot frame spawns one batch") and ok
+	var resid := float(spawner.get("_accum"))
+	ok = assert_true(resid > 0.0 and resid < 0.5, "overshoot residue carried (accum=%.4f)" % resid) and ok
+	ok = assert_true(absf(resid - 0.1) < 0.01, "residue is ~0.1 (accum=%.4f)" % resid) and ok
+	await _clear_enemies()
+	spawner.set("_accum", 0.0)
+	spawner.call("_physics_process", 1.1)
+	var after_long := get_nodes_in_group("enemies").size()
+	ok = assert_eq(after_long, 2, "long frame fires two batches") and ok
+	spawner.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_spawner_zero_interval_no_hang() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var spawner: Node = load("res://spawner.gd").new()
+	root.add_child(spawner)
+	spawner.set_physics_process(false)
+	spawner.set("spawn_interval", 0.0)
+	spawner.set("batch_size", 1)
+	spawner.set("max_entities", 1000)
+	await process_frame
+	spawner.call("_physics_process", 1.0)
+	var alive := get_nodes_in_group("enemies").size()
+	ok = assert_eq(alive, 0, "zero interval spawns nothing") and ok
+	spawner.queue_free()
+	await _clear_enemies()
 	return ok
 
 
