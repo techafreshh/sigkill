@@ -13,6 +13,8 @@ const STATUS_EVERY_TICKS := 60
 @export var spawn_margin_max := 150.0
 @export var chaser_scene: PackedScene = CHASER_SCENE
 @export var player_path: NodePath
+## When true, emits SPAWNER_STATUS / SPAWNER_SPAWN diagnostics. Silent by default.
+@export var verbose := false
 
 var player: Node2D
 var peak_alive := 0
@@ -37,7 +39,8 @@ func _physics_process(delta: float) -> void:
 		var current := get_tree().get_nodes_in_group("enemies").size()
 		if current > peak_alive:
 			peak_alive = current
-		print("SPAWNER_STATUS get_nodes_in_group(\"enemies\").size()=%d MAX_ALIVE=%d" % [current, peak_alive])
+		if verbose:
+			print("SPAWNER_STATUS get_nodes_in_group(\"enemies\").size()=%d MAX_ALIVE=%d" % [current, peak_alive])
 
 
 func _resolve_player() -> void:
@@ -94,4 +97,5 @@ func _try_spawn() -> void:
 		var now_alive := get_tree().get_nodes_in_group("enemies").size()
 		if now_alive > peak_alive:
 			peak_alive = now_alive
-		print("SPAWNER_SPAWN SPAWN_DIST=%.2f MIN_VIEW_RADIUS=%.2f ALIVE=%d" % [dist, radius, now_alive])
+		if verbose:
+			print("SPAWNER_SPAWN SPAWN_DIST=%.2f MIN_VIEW_RADIUS=%.2f ALIVE=%d" % [dist, radius, now_alive])

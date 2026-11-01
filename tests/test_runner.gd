@@ -46,6 +46,8 @@ func run_all() -> void:
 		"test_spawner_enforces_cap",
 		"test_spawner_preserves_overshoot",
 		"test_spawner_zero_interval_no_hang",
+		"test_spawner_quiet_by_default",
+		"test_spawner_verbose_reemits_diagnostics",
 		"test_chaser_steers_toward_player",
 		"test_chaser_has_accel_tuning",
 		"test_chaser_velocity_ramps",
@@ -484,6 +486,76 @@ func test_spawner_zero_interval_no_hang() -> bool:
 	var alive := get_nodes_in_group("enemies").size()
 	ok = assert_eq(alive, 0, "zero interval spawns nothing") and ok
 	spawner.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_spawner_quiet_by_default() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var spawner: Node = load("res://spawner.gd").new()
+	ok = assert_true(spawner != null, "spawner script instantiates") and ok
+	if spawner == null:
+		return false
+	ok = assert_eq(spawner.get("verbose"), false, "spawner verbose defaults to false") and ok
+	root.add_child(spawner)
+	spawner.set_physics_process(false)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("batch_size", 1)
+	spawner.set("max_entities", 1000)
+	await process_frame
+	spawner.call("_physics_process", 0.6)
+	var spawned := get_nodes_in_group("enemies").size()
+	ok = assert_eq(spawned, 1, "quiet spawner still spawns") and ok
+	ok = assert_true(int(spawner.get("peak_alive")) >= 1, "quiet spawner still tracks peak_alive") and ok
+	spawner.set("_tick", 59)
+	spawner.call("_physics_process", 0.0)
+	ok = assert_true(int(spawner.get("peak_alive")) >= get_nodes_in_group("enemies").size(), "quiet status tick still tracks peak_alive") and ok
+	var source := FileAccess.get_file_as_string("res://spawner.gd")
+	ok = assert_true(source.contains("SPAWNER_STATUS"), "spawner retains SPAWNER_STATUS string") and ok
+	ok = assert_true(source.contains("SPAWNER_SPAWN"), "spawner retains SPAWNER_SPAWN string") and ok
+	spawner.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_spawner_verbose_reemits_diagnostics() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var quiet: Node = load("res://spawner.gd").new()
+	root.add_child(quiet)
+	quiet.set_physics_process(false)
+	quiet.set("spawn_interval", 0.5)
+	quiet.set("batch_size", 1)
+	quiet.set("max_entities", 1000)
+	await process_frame
+	quiet.call("_physics_process", 1.1)
+	var quiet_spawned := get_nodes_in_group("enemies").size()
+	var quiet_peak := int(quiet.get("peak_alive"))
+	quiet.queue_free()
+	await _clear_enemies()
+	var loud: Node = load("res://spawner.gd").new()
+	ok = assert_true(loud != null, "spawner script instantiates") and ok
+	if loud == null:
+		return false
+	loud.set("verbose", true)
+	ok = assert_eq(loud.get("verbose"), true, "spawner verbose opt-in sticks") and ok
+	root.add_child(loud)
+	loud.set_physics_process(false)
+	loud.set("spawn_interval", 0.5)
+	loud.set("batch_size", 1)
+	loud.set("max_entities", 1000)
+	await process_frame
+	loud.call("_physics_process", 1.1)
+	var loud_spawned := get_nodes_in_group("enemies").size()
+	var loud_peak := int(loud.get("peak_alive"))
+	ok = assert_eq(loud_spawned, quiet_spawned, "verbose flag does not change spawn count") and ok
+	ok = assert_eq(loud_peak, quiet_peak, "verbose flag does not change peak_alive") and ok
+	ok = assert_true(loud_peak >= 1, "verbose spawner tracks peak_alive") and ok
+	loud.set("_tick", 59)
+	loud.call("_physics_process", 0.0)
+	ok = assert_true(int(loud.get("peak_alive")) >= get_nodes_in_group("enemies").size(), "verbose status tick tracks peak_alive") and ok
+	loud.queue_free()
 	await _clear_enemies()
 	return ok
 
