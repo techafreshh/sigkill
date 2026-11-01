@@ -40,6 +40,7 @@ func run_all() -> void:
 		"test_camera_follows_player",
 		"test_ground_renders",
 		"test_spawner_default_cap_is_300",
+		"test_player_in_player_group",
 		"test_chaser_in_enemies_group",
 		"test_spawner_ring_spawns_offscreen",
 		"test_spawner_enforces_cap",
@@ -351,6 +352,28 @@ func test_spawner_default_cap_is_300() -> bool:
 		return false
 	ok = assert_eq(int(spawner.get("max_entities")), 300, "spawner default cap is 300") and ok
 	spawner.free()
+	return ok
+
+
+func test_player_in_player_group() -> bool:
+	var ok := true
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null:
+		instance.queue_free()
+		return false
+	ok = assert_true(player.is_in_group("player"), "player joins player group") and ok
+	ok = assert_true(get_first_node_in_group("player") == player, "group lookup resolves to Player") and ok
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner != null:
+		ok = assert_true(spawner.get("player") == player, "spawner resolves to Player") and ok
+	instance.queue_free()
 	return ok
 
 

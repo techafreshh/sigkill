@@ -10,6 +10,7 @@ var theme: TerminalTheme
 
 
 func _ready() -> void:
+	add_to_group("player")
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	theme = TERMINAL_THEME as TerminalTheme
 	queue_redraw()
