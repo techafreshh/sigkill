@@ -1484,7 +1484,8 @@ func test_bolt_child_of_player_with_timer() -> bool:
 	ok = assert_true(bolt.has_method("_try_fire"), "bolt exposes _try_fire") and ok
 	ok = assert_true(bolt.has_method("_on_cooldown_timeout"), "bolt exposes _on_cooldown_timeout") and ok
 	ok = assert_true(float(bolt.get("cooldown")) > 0.0, "bolt cooldown export positive") and ok
-	ok = assert_true(float(bolt.get("range")) > 0.0, "bolt range export positive") and ok
+	ok = assert_true(float(bolt.get("attack_range")) > 0.0, "bolt attack_range export positive") and ok
+	ok = assert_true(bolt.get("range") == null, "bolt no longer exposes shadowing range export") and ok
 	ok = assert_true(float(bolt.get("projectile_speed")) > 0.0, "bolt projectile_speed export positive") and ok
 	var cooldown := bolt.get_node_or_null("Cooldown")
 	ok = assert_true(cooldown != null and cooldown is Timer, "mounted Bolt has Cooldown Timer child") and ok
@@ -1492,6 +1493,7 @@ func test_bolt_child_of_player_with_timer() -> bool:
 		ok = assert_true(absf(float((cooldown as Timer).wait_time) - float(bolt.get("cooldown"))) < 0.01, "timer wait_time syncs to cooldown export") and ok
 	var source := FileAccess.get_file_as_string("res://weapons/bolt.gd")
 	ok = assert_true(source.contains("projectiles_spawned="), "bolt logs projectiles_spawned counter") and ok
+	ok = assert_true(not source.contains("var range"), "bolt source declares no shadowing var range member") and ok
 	instance.queue_free()
 	return ok
 
@@ -1513,9 +1515,9 @@ func test_bolt_range_covers_spawn_ring() -> bool:
 	if player == null or spawner == null or bolt == null:
 		instance.queue_free()
 		return false
-	var bolt_range := float(bolt.get("range"))
+	var bolt_range := float(bolt.get("attack_range"))
 	var margin_max := float(spawner.get("spawn_margin_max"))
-	ok = assert_true(bolt_range > 0.0, "bolt range export positive") and ok
+	ok = assert_true(bolt_range > 0.0, "bolt attack_range export positive") and ok
 	ok = assert_true(margin_max > 0.0, "spawner spawn_margin_max positive") and ok
 	# Engagement envelope is the DESIGN viewport (project 1280x720, same as the
 	# spawner's FALLBACK_VIEWPORT_SIZE): the unit runner's root window is a
@@ -1529,7 +1531,7 @@ func test_bolt_range_covers_spawn_ring() -> bool:
 	var projectile = load("res://weapons/projectile.gd").new()
 	ok = assert_true(projectile != null, "projectile script instantiates") and ok
 	if projectile != null:
-		ok = assert_eq(float(projectile.get("max_range")), bolt_range, "projectile default max_range mirrors bolt range") and ok
+		ok = assert_eq(float(projectile.get("max_range")), bolt_range, "projectile default max_range mirrors bolt attack_range") and ok
 		projectile.free()
 	# Behavioral proof: a worst-case fresh spawn (ring bound from the player)
 	# sits outside the design viewport yet inside bolt range, so _try_fire

@@ -7,7 +7,7 @@ const ProjectileScript := preload("res://weapons/projectile.gd")
 
 @export var cooldown := 0.8
 # Covers the spawner off-screen ring (viewport half-diagonal + spawn_margin_max ≈ 884px at 1280x720) so fresh spawns are engageable on spawn.
-@export var range := 950.0
+@export var attack_range := 950.0
 @export var projectile_speed := 700.0
 @export var damage := 1
 
@@ -41,7 +41,7 @@ func _try_fire() -> void:
 			continue
 		var enemy := node as Node2D
 		var dist := origin.distance_to(enemy.global_position)
-		if dist > range:
+		if dist > attack_range:
 			continue
 		if best == null or dist < best_dist:
 			best = enemy
@@ -59,6 +59,6 @@ func _try_fire() -> void:
 		else:
 			host = get_tree().root
 	host.add_child(projectile)
-	projectile.call("launch", origin, best.global_position, projectile_speed, damage, range)
+	projectile.call("launch", origin, best.global_position, projectile_speed, damage, attack_range)
 	shots += 1
 	print("BOLT_FIRE projectiles_spawned=%d target_dist=%.1f" % [shots, best_dist])
