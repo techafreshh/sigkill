@@ -137,7 +137,8 @@ func _try_spawn() -> void:
 		if is_instance_valid(player):
 			chaser.set("target", player)
 		if chaser.has_signal("died"):
-			chaser.connect("died", _on_enemy_died.bind(chaser))
+			if not chaser.is_connected("died", _on_enemy_died.bind(chaser)):
+				chaser.connect("died", _on_enemy_died.bind(chaser))
 		if verbose:
 			var now_alive := get_tree().get_nodes_in_group("enemies").size()
 			print("SPAWNER_SPAWN SPAWN_DIST=%.2f MIN_VIEW_RADIUS=%.2f ALIVE=%d" % [dist, radius, now_alive])
