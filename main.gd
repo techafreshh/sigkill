@@ -66,7 +66,7 @@ func _on_player_health_changed(_current: float, _maximum: float) -> void:
 
 
 func _on_player_died() -> void:
-	_refresh_hud()
+	end_run("death")
 
 
 ## Spawner push cache: keep ALIVE= fresh outside the 0.25s poll. Mirrors the

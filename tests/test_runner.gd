@@ -81,6 +81,7 @@ func run_all() -> void:
 		"test_main_hud_reflects_damage_immediately",
 		"test_main_hud_rewires_after_health_replace",
 		"test_main_hud_shows_game_over_immediately",
+		"test_main_died_handler_ends_run_without_player_forwarding",
 		"test_main_hud_has_no_enemies_group_scan",
 		"test_main_hud_alive_tracks_spawner_cache",
 		"test_spawner_alive_count_tracks_spawn_and_died",
@@ -1583,6 +1584,72 @@ func test_main_hud_shows_game_over_immediately() -> bool:
 	ok = assert_true(bool(instance.call("is_game_over")), "lethal hit ends run within 2 frames") and ok
 	var label := instance.get_node_or_null("StatusLabel") as Label
 	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER within 2 frames") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_died_handler_ends_run_without_player_forwarding() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	ok = assert_true(not bool(instance.call("is_game_over")), "run active before isolated died handler") and ok
+	ok = assert_true(bool(instance.call("is_run_active")), "run active flag set before isolated died handler") and ok
+	var health := player.get_node_or_null("Health")
+	ok = assert_true(health != null, "Health present before isolating Main") and ok
+	if health == null:
+		instance.queue_free()
+		return false
+	var player_cb := Callable(player, "_on_health_died")
+	ok = assert_true(health.is_connected("died", player_cb), "player-side forwarding wired before isolation") and ok
+	if health.is_connected("died", player_cb):
+		health.disconnect("died", player_cb)
+	ok = assert_true(not health.is_connected("died", player_cb), "player forwarding disconnected to isolate Main") and ok
+	var main_cb := Callable(instance, "_on_player_died")
+	ok = assert_true(health.is_connected("died", main_cb), "Main died wiring intact after isolation") and ok
+	instance.call("_on_player_died")
+	await process_frame
+	await physics_frame
+	ok = assert_true(bool(instance.call("is_game_over")), "Main handler alone ends run within 2 frames") and ok
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after Main handler alone") and ok
+	ok = assert_true(bool(instance.get("game_over")), "game_over flag set by Main handler alone") and ok
+	var isolated_label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(isolated_label != null and isolated_label.text.contains("GAME_OVER"), "HUD shows GAME_OVER via Main handler alone") and ok
+	var source := FileAccess.get_file_as_string("res://main.gd")
+	ok = assert_true(source.contains("RUN_END=death"), "coordinator logs RUN_END=death") and ok
+	var died_idx := source.find("func _on_player_died")
+	ok = assert_true(died_idx >= 0, "main.gd defines _on_player_died") and ok
+	var died_block := ""
+	if died_idx >= 0:
+		var next_func := source.find("\nfunc ", died_idx + 1)
+		if next_func < 0:
+			died_block = source.substr(died_idx)
+		else:
+			died_block = source.substr(died_idx, next_func - died_idx)
+	ok = assert_true(died_block.contains('end_run("death")'), "Main died handler calls end_run death") and ok
+	ok = assert_true(not died_block.contains("_refresh_hud"), "handler reaches HUD via end_run, no duplicated logic") and ok
+	var end_idx := source.find("func end_run")
+	ok = assert_true(end_idx >= 0, "main.gd defines end_run") and ok
+	var end_block := ""
+	if end_idx >= 0:
+		var end_next := source.find("\nfunc ", end_idx + 1)
+		if end_next < 0:
+			end_block = source.substr(end_idx)
+		else:
+			end_block = source.substr(end_idx, end_next - end_idx)
+	ok = assert_true(end_block.contains("_refresh_hud"), "end_run reaches _refresh_hud") and ok
 	instance.queue_free()
 	return ok
 
