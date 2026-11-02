@@ -44,7 +44,21 @@ func _notification(what: int) -> void:
 		_wire_health()
 
 
+func _is_run_active() -> bool:
+	var coordinator := get_parent()
+	if coordinator == null or not is_instance_valid(coordinator):
+		return true
+	if coordinator.has_method("is_run_active"):
+		return bool(coordinator.call("is_run_active"))
+	if "run_active" in coordinator:
+		return bool(coordinator.get("run_active"))
+	return true
+
+
 func _physics_process(delta: float) -> void:
+	if not _is_run_active():
+		velocity = Vector2.ZERO
+		return
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var target := input * speed
 	var rate := acceleration if input.length() > 0.0 else friction
