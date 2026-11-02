@@ -84,6 +84,7 @@ func run_all() -> void:
 		"test_main_died_handler_ends_run_without_player_forwarding",
 		"test_main_hud_has_no_enemies_group_scan",
 		"test_main_hud_alive_tracks_spawner_cache",
+		"test_main_hud_refresh_is_pure_paint",
 		"test_spawner_alive_count_tracks_spawn_and_died",
 		"test_sanity_math",
 		"test_nominal_seconds_math",
@@ -1718,6 +1719,95 @@ func test_main_hud_alive_tracks_spawner_cache() -> bool:
 	ok = assert_eq(get_nodes_in_group("enemies").size(), 2, "group reflects freed chaser") and ok
 	ok = assert_eq(int(instance.get("_cached_alive")), 2, "HUD cache follows died push") and ok
 	ok = assert_true(label.text.contains("ALIVE=2"), "HUD shows ALIVE=2 after died") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_hud_refresh_is_pure_paint() -> bool:
+	var ok := true
+	var source := FileAccess.get_file_as_string("res://main.gd")
+	var hud_idx := source.find("func _refresh_hud")
+	ok = assert_true(hud_idx >= 0, "main.gd defines _refresh_hud") and ok
+	var hud_block := ""
+	if hud_idx >= 0:
+		var hud_next := source.find("\nfunc ", hud_idx + 1)
+		if hud_next < 0:
+			hud_block = source.substr(hud_idx)
+		else:
+			hud_block = source.substr(hud_idx, hud_next - hud_idx)
+	ok = assert_true(not hud_block.contains("_connect_health_signals"), "_refresh_hud performs no health rewire") and ok
+	ok = assert_true(not hud_block.contains("connect("), "_refresh_hud performs no signal connect") and ok
+	ok = assert_true(not hud_block.contains("disconnect("), "_refresh_hud performs no signal disconnect") and ok
+	var tick_idx := source.find("func _physics_process")
+	ok = assert_true(tick_idx >= 0, "main.gd defines _physics_process") and ok
+	var tick_block := ""
+	if tick_idx >= 0:
+		var tick_next := source.find("\nfunc ", tick_idx + 1)
+		if tick_next < 0:
+			tick_block = source.substr(tick_idx)
+		else:
+			tick_block = source.substr(tick_idx, tick_next - tick_idx)
+	ok = assert_true(tick_block.contains("_connect_health_signals"), "physics tick still owns rewiring") and ok
+	var end_idx := source.find("func end_run")
+	ok = assert_true(end_idx >= 0, "main.gd defines end_run") and ok
+	var end_block := ""
+	if end_idx >= 0:
+		var end_next := source.find("\nfunc ", end_idx + 1)
+		if end_next < 0:
+			end_block = source.substr(end_idx)
+		else:
+			end_block = source.substr(end_idx, end_next - end_idx)
+	ok = assert_true(end_block.contains("_refresh_hud"), "end_run still reaches _refresh_hud") and ok
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if player == null or label == null:
+		instance.queue_free()
+		return false
+	if spawner != null:
+		spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	instance.set_physics_process(false)
+	var old_health := player.get_node_or_null("Health")
+	ok = assert_true(old_health != null, "original Health present before swap") and ok
+	if old_health != null:
+		player.remove_child(old_health)
+		old_health.queue_free()
+	var fresh: Node = load("res://player/health.gd").new()
+	fresh.name = "Health"
+	player.add_child(fresh)
+	await process_frame
+	var want_changed := Callable(instance, "_on_player_health_changed")
+	var want_died := Callable(instance, "_on_player_died")
+	instance.call("_refresh_hud")
+	ok = assert_true(label.text.contains("KILLS="), "paint-only refresh still paints kills") and ok
+	ok = assert_true(label.text.contains("HP="), "paint-only refresh still paints HP") and ok
+	ok = assert_true(not fresh.is_connected("health_changed", want_changed), "_refresh_hud alone wires no health_changed") and ok
+	ok = assert_true(not fresh.is_connected("died", want_died), "_refresh_hud alone wires no died") and ok
+	instance.call("_physics_process", 0.016)
+	ok = assert_true(fresh.is_connected("health_changed", want_changed), "physics tick wires fresh health_changed") and ok
+	ok = assert_true(fresh.is_connected("died", want_died), "physics tick wires fresh died") and ok
+	var changed_conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("health_changed"):
+		var changed_cal: Callable = entry["callable"]
+		if changed_cal == want_changed:
+			changed_conns += 1
+	ok = assert_eq(changed_conns, 1, "physics tick wires exactly one health_changed connection") and ok
+	var died_conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("died"):
+		var died_cal: Callable = entry["callable"]
+		if died_cal == want_died:
+			died_conns += 1
+	ok = assert_eq(died_conns, 1, "physics tick wires exactly one died connection") and ok
 	instance.queue_free()
 	return ok
 
