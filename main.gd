@@ -16,6 +16,7 @@ var spawner: Node2D
 var ground: Node2D
 var status_label: Label
 var _wired_health: Node
+var _wired_spawner: Node
 
 
 func _ready() -> void:
@@ -70,17 +71,26 @@ func _on_player_died() -> void:
 
 
 ## Spawner push cache: keep ALIVE= fresh outside the 0.25s poll. Mirrors the
-## _connect_health_signals guard idiom (null/valid, has_signal, is_connected).
+## _connect_health_signals guard idiom (null/valid, has_signal, is_connected)
+## with fresh child lookup each call, so a same-name replacement Spawner
+## rewires within one physics tick even while the old node stays valid.
 func _connect_spawner_signals() -> void:
-	if spawner == null or not is_instance_valid(spawner):
-		spawner = get_node_or_null("Spawner") as Node2D
-	if spawner == null or not is_instance_valid(spawner):
+	var current := get_node_or_null("Spawner") as Node2D
+	if _wired_spawner != null and is_instance_valid(_wired_spawner) and _wired_spawner != current:
+		if _wired_spawner.has_signal("alive_changed"):
+			if _wired_spawner.is_connected("alive_changed", _on_spawner_alive_changed):
+				_wired_spawner.disconnect("alive_changed", _on_spawner_alive_changed)
+	if current == null or not is_instance_valid(current):
+		spawner = current
+		_wired_spawner = null
 		return
-	if spawner.has_signal("alive_changed"):
-		if not spawner.is_connected("alive_changed", _on_spawner_alive_changed):
-			spawner.connect("alive_changed", _on_spawner_alive_changed)
-	if spawner.has_method("get_alive"):
-		_cached_alive = int(spawner.call("get_alive"))
+	if current.has_signal("alive_changed"):
+		if not current.is_connected("alive_changed", _on_spawner_alive_changed):
+			current.connect("alive_changed", _on_spawner_alive_changed)
+	spawner = current
+	_wired_spawner = current
+	if current.has_method("get_alive"):
+		_cached_alive = int(current.call("get_alive"))
 
 
 func _on_spawner_alive_changed(count: int) -> void:
@@ -92,6 +102,7 @@ func _physics_process(delta: float) -> void:
 	if not is_inside_tree():
 		return
 	_connect_health_signals()
+	_connect_spawner_signals()
 	if not run_active:
 		return
 	elapsed_seconds += delta
