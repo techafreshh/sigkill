@@ -78,13 +78,15 @@ func _physics_process(delta: float) -> void:
 ## Kill accounting: a spawner-produced chaser that emits died was lethally
 ## damaged, so log the poof placeholder and forward the kill to the run
 ## coordinator through the same guarded lookup shape as _is_run_active.
+## The whole accounting unit, including the counter decrement, stays frozen
+## while the run is inactive.
 func _on_enemy_died(enemy: Node) -> void:
+	if not _is_run_active():
+		return
 	if alive_count > 0:
 		alive_count -= 1
 	else:
 		alive_count = 0
-	if not _is_run_active():
-		return
 	alive_changed.emit(alive_count)
 	var pos := Vector2.ZERO
 	if enemy != null and is_instance_valid(enemy) and enemy is Node2D:
