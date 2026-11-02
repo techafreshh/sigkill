@@ -60,8 +60,9 @@ func _shove_crowd(push: float, delta: float) -> void:
 
 
 ## Contact damage: per-tick enemies-group distance check mirroring _shove_crowd.
-## A touching enemy deals contact_damage through the Health node, whose
-## i-frame timer drops repeat touches while the overlap persists. Exact
+## Every toucher inside contact_radius contributes contact_damage to one summed
+## Health tick (contact_damage * toucher count); the Health node's i-frame
+## timer gates whole aggregate ticks, not individual touchers. Exact
 ## overlap (dist < 0.01) still counts as contact: unlike the shove there is
 ## no direction to normalize, so nothing to guard against.
 func _check_contact_damage() -> void:
@@ -69,6 +70,7 @@ func _check_contact_damage() -> void:
 		return
 	if bool(health.call("is_dead")):
 		return
+	var touchers := 0
 	for node in get_tree().get_nodes_in_group("enemies"):
 		if node == self or not (node is Node2D):
 			continue
@@ -78,12 +80,15 @@ func _check_contact_damage() -> void:
 		var dist: float = enemy.global_position.distance_to(global_position)
 		if dist > contact_radius:
 			continue
-		var before: float = float(health.call("get_hp"))
-		health.call("take_damage", contact_damage)
-		var after: float = float(health.call("get_hp"))
-		if after < before:
-			print("PLAYER_HIT hp=%d damage=%d" % [int(after), int(contact_damage)])
-		break
+		touchers += 1
+	if touchers == 0:
+		return
+	var total: float = contact_damage * touchers
+	var before: float = float(health.call("get_hp"))
+	health.call("take_damage", total)
+	var after: float = float(health.call("get_hp"))
+	if after < before:
+		print("PLAYER_HIT hp=%d damage=%d" % [int(after), int(total)])
 
 
 func _on_health_died() -> void:
