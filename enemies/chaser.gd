@@ -12,10 +12,15 @@ const TERMINAL_THEME := preload("res://data/theme.tres")
 signal died
 signal health_changed(current: float, maximum: float)
 
-var health: float
+## Mirrors the max_health default above; _init and _ready re-assert from max_health.
+var health: float = 3.0
 var _dead := false
 var target: Node2D
 var theme: TerminalTheme
+
+
+func _init() -> void:
+	health = max_health
 
 
 func _ready() -> void:
