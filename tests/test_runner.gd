@@ -118,6 +118,7 @@ func run_all() -> void:
 		"test_player_rewire_same_node_is_noop",
 		"test_player_get_hp_does_not_rewire",
 		"test_restart_run_restores_full_run",
+		"test_reset_run_uses_fresh_handles_after_swap",
 		"test_restore_full_health_rewires_after_swap",
 		"test_contact_damage_rewires_after_swap",
 		"test_player_health_full_before_tree_entry",
@@ -3424,6 +3425,95 @@ func test_restart_run_restores_full_run() -> bool:
 	ok = assert_true(label != null and not label.text.contains("GAME_OVER"), "HUD clears GAME_OVER after restart") and ok
 	chaser.queue_free()
 	instance.queue_free()
+	return ok
+
+
+func test_reset_run_uses_fresh_handles_after_swap() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var old_player := instance.get_node_or_null("Player")
+	var old_spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(old_player != null, "main scene has Player") and ok
+	ok = assert_true(old_spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if old_player == null or old_spawner == null or label == null:
+		instance.queue_free()
+		return false
+	old_spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	old_player.call("take_damage", 30.0)
+	ok = assert_true(float(old_player.call("get_hp")) < 100.0, "live Player damaged before swap") and ok
+	var stale_hp := float(old_player.call("get_hp"))
+	old_spawner.set("peak_alive", 7)
+	instance.call("register_kill")
+	instance.call("register_kill")
+	instance.set("elapsed_seconds", 12.5)
+	var old_health := (old_player as Node).get_node_or_null("Health")
+	ok = assert_true(old_health != null, "original Health present before swap") and ok
+	# Same-name swap of both children with no physics frame in between,
+	# mirroring test_main_hud_rewires_after_spawner_replace (Spawner half)
+	# and test_main_hud_rewires_after_player_replace (Player half).
+	instance.remove_child(old_spawner)
+	old_spawner.queue_free()
+	var fresh_spawner: Node = load("res://spawner.gd").new()
+	fresh_spawner.name = "Spawner"
+	fresh_spawner.set("player_path", NodePath("../Player"))
+	fresh_spawner.set("spawn_interval", 3600.0)
+	fresh_spawner.set("peak_alive", 42)
+	instance.add_child(fresh_spawner)
+	instance.remove_child(old_player)
+	old_player.queue_free()
+	var fresh_player := CharacterBody2D.new()
+	fresh_player.name = "Player"
+	fresh_player.set_script(load("res://player.gd"))
+	var fresh_health: Node = load("res://player/health.gd").new()
+	fresh_health.name = "Health"
+	fresh_player.add_child(fresh_health)
+	instance.add_child(fresh_player)
+	fresh_player.call("take_damage", 40.0)
+	ok = assert_true(float(fresh_health.call("get_hp")) < float(fresh_health.get("max_hp")), "fresh Health damaged before reset") and ok
+	# Poison the coordinator caches to reproduce the stale-handle state:
+	# remove/add delivery already leaves them stale, so re-assert it.
+	instance.set("player", old_player)
+	instance.set("spawner", old_spawner)
+	# Synchronous reset with zero frames between swap and reset.
+	instance.call("reset_run")
+	ok = assert_true(instance.get("player") == fresh_player, "reset reseats player handle on live node") and ok
+	ok = assert_true(instance.get("spawner") == fresh_spawner, "reset reseats spawner handle on live node") and ok
+	ok = assert_eq(float(fresh_player.call("get_hp")), 100.0, "reset heals the live Player to full") and ok
+	ok = assert_eq(float(fresh_health.call("get_hp")), float(fresh_health.get("max_hp")), "fresh Health reads full after reset") and ok
+	ok = assert_eq(float(old_player.call("get_hp")), stale_hp, "reset leaves the detached stale Player untouched") and ok
+	ok = assert_eq(int(fresh_spawner.get("peak_alive")), 0, "reset zeroes live spawner peak") and ok
+	ok = assert_eq(int(old_spawner.get("peak_alive")), 7, "reset leaves detached stale spawner untouched") and ok
+	ok = assert_eq(int(instance.call("get_peak_alive")), 0, "coordinator reads zero peak after reset") and ok
+	ok = assert_eq(int(instance.call("get_kills")), 0, "reset zeroes kills") and ok
+	ok = assert_eq(float(instance.call("get_elapsed")), 0.0, "reset zeroes clock") and ok
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	ok = assert_eq(bool(instance.get("game_over")), false, "reset clears game_over") and ok
+	ok = assert_true(instance.get("_wired_spawner") == fresh_spawner, "reset rewires spawner handle synchronously") and ok
+	ok = assert_true(instance.get("_wired_health") == fresh_health, "reset rewires health handle synchronously") and ok
+	var want_changed := Callable(instance, "_on_player_health_changed")
+	var want_died := Callable(instance, "_on_player_died")
+	ok = assert_true(fresh_health.is_connected("health_changed", want_changed), "reset wires fresh health_changed") and ok
+	ok = assert_true(fresh_health.is_connected("died", want_died), "reset wires fresh died") and ok
+	var want_alive := Callable(instance, "_on_spawner_alive_changed")
+	ok = assert_true(fresh_spawner.is_connected("alive_changed", want_alive), "reset wires fresh alive_changed") and ok
+	ok = assert_true(label.text.contains("HP=100"), "HUD shows HP=100 after synchronous reset") and ok
+	ok = assert_true(label.text.contains("KILLS=0"), "HUD shows KILLS=0 after synchronous reset") and ok
+	ok = assert_true(not label.text.contains("GAME_OVER"), "HUD clears GAME_OVER after reset") and ok
+	if old_spawner != null and is_instance_valid(old_spawner):
+		old_spawner.queue_free()
+	if old_player != null and is_instance_valid(old_player):
+		old_player.queue_free()
+	instance.queue_free()
+	await _clear_enemies()
 	return ok
 
 
