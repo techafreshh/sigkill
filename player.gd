@@ -58,8 +58,9 @@ func _physics_process(delta: float) -> void:
 	velocity = velocity.move_toward(target, rate * delta)
 	var push := velocity.length()
 	move_and_slide()
-	_shove_crowd(push, delta)
-	_check_contact_damage()
+	var enemies := get_tree().get_nodes_in_group("enemies")
+	_shove_crowd(push, delta, enemies)
+	_check_contact_damage(enemies)
 
 
 ## Crowd shove: a contact-only push cannot move a multi-layer pile, because
@@ -67,11 +68,11 @@ func _physics_process(delta: float) -> void:
 ## layers keep ramming inward. Pushing every nearby enemy at once translates
 ## the whole pile as a loose mass, so the player barges through instead of
 ## wedging. Gated on push, so an idle player stays a hard wall.
-func _shove_crowd(push: float, delta: float) -> void:
+func _shove_crowd(push: float, delta: float, enemies: Array) -> void:
 	if push <= 1.0:
 		return
 	var shove_vel := minf(push * shove_strength, shove_max_speed)
-	for node in get_tree().get_nodes_in_group("enemies"):
+	for node in enemies:
 		if node != self and node is CharacterBody2D:
 			var enemy := node as CharacterBody2D
 			var offset: Vector2 = enemy.global_position - global_position
@@ -87,7 +88,7 @@ func _shove_crowd(push: float, delta: float) -> void:
 ## timer gates whole aggregate ticks, not individual touchers. Exact
 ## overlap (dist < 0.01) still counts as contact: unlike the shove there is
 ## no direction to normalize, so nothing to guard against.
-func _check_contact_damage() -> void:
+func _check_contact_damage(enemies: Array) -> void:
 	if health == null or not is_instance_valid(health):
 		return
 	if not health.has_method("is_dead") or not health.has_method("get_hp") or not health.has_method("take_damage"):
@@ -95,7 +96,7 @@ func _check_contact_damage() -> void:
 	if bool(health.call("is_dead")):
 		return
 	var touchers := 0
-	for node in get_tree().get_nodes_in_group("enemies"):
+	for node in enemies:
 		if node == self or not (node is Node2D):
 			continue
 		var enemy := node as Node2D
