@@ -101,6 +101,7 @@ func run_all() -> void:
 		"test_player_contact_damage_reduces_hp",
 		"test_player_stacked_contact_damage_sums",
 		"test_player_contact_path_scans_enemies_once",
+		"test_end_run_non_death_logs_uniform_tokens",
 		"test_enemy_died_wires_kill_and_xp_log",
 		"test_enemy_lethal_damage_frees_within_half_second",
 		"test_lethal_contact_ends_run_with_run_end_log",
@@ -2659,6 +2660,52 @@ func test_lethal_contact_ends_run_with_run_end_log() -> bool:
 	ok = assert_true(source.contains("game_over=true"), "coordinator logs game_over=true") and ok
 	ok = assert_true(source.contains("ERRORS=0"), "coordinator logs ERRORS=0") and ok
 	chaser.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_end_run_non_death_logs_uniform_tokens() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	ok = assert_true(bool(instance.call("is_run_active")), "run active before non-death end") and ok
+	ok = assert_true(not bool(instance.call("is_game_over")), "no game over before non-death end") and ok
+	instance.call("end_run", "quit")
+	await process_frame
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after non-death end") and ok
+	ok = assert_true(bool(instance.call("is_game_over")), "is_game_over true after non-death end") and ok
+	ok = assert_true(bool(instance.get("game_over")), "game_over flag set after non-death end") and ok
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER after non-death end") and ok
+	var source := FileAccess.get_file_as_string("res://main.gd")
+	var end_idx := source.find("func end_run")
+	ok = assert_true(end_idx >= 0, "main.gd defines end_run") and ok
+	var end_block := ""
+	if end_idx >= 0:
+		var end_next := source.find("\nfunc ", end_idx + 1)
+		if end_next < 0:
+			end_block = source.substr(end_idx)
+		else:
+			end_block = source.substr(end_idx, end_next - end_idx)
+	ok = assert_true(end_block.contains("RUN_END=%s"), "non-death branch logs RUN_END reason token") and ok
+	ok = assert_true(end_block.contains("game_over=true"), "non-death branch logs game_over=true") and ok
+	ok = assert_true(end_block.contains("ERRORS=0"), "non-death branch logs ERRORS=0") and ok
+	ok = assert_true(end_block.contains("elapsed="), "non-death branch logs elapsed") and ok
+	ok = assert_true(end_block.contains("kills="), "non-death branch logs kills") and ok
+	ok = assert_true(end_block.contains("RUN_END=%s game_over=true ERRORS=0"), "non-death log carries uniform token tail") and ok
+	ok = assert_true(source.contains("RUN_END=death"), "coordinator retains RUN_END=death literal") and ok
 	instance.queue_free()
 	return ok
 
