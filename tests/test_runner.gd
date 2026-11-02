@@ -72,6 +72,7 @@ func run_all() -> void:
 		"test_player_shoves_through_encirclement",
 		"test_chaser_stops_at_contact_band",
 		"test_chaser_halts_when_run_inactive",
+		"test_projectile_halts_when_run_inactive",
 		"test_chaser_has_take_damage",
 		"test_chaser_take_damage_reduces_health",
 		"test_chaser_take_damage_kills_at_zero",
@@ -1648,6 +1649,102 @@ func test_chaser_halts_when_run_inactive() -> bool:
 	ok = assert_true(lone.global_position.distance_to(lone_start) > 1.0, "detached chaser displaces (%.1f px)" % lone.global_position.distance_to(lone_start)) and ok
 	lone.queue_free()
 	dummy.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_projectile_halts_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var projectile = load("res://weapons/projectile.gd").new()
+	instance.add_child(projectile)
+	await process_frame
+	var from: Vector2 = player.global_position + Vector2(-400, 0)
+	projectile.call("launch", from, from + Vector2(100, 0), 700.0, 1, 950.0)
+	var start_pos: Vector2 = projectile.global_position
+	for i in 30:
+		await physics_frame
+	ok = assert_true(is_instance_valid(projectile), "projectile alive while active") and ok
+	if not is_instance_valid(projectile):
+		instance.queue_free()
+		return false
+	ok = assert_true(projectile.global_position.distance_to(start_pos) > 1.0, "projectile displaces while active (%.1f px)" % projectile.global_position.distance_to(start_pos)) and ok
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	var frozen_pos: Vector2 = projectile.global_position
+	var frozen_travelled: float = float(projectile.get("_travelled"))
+	var frozen_life: float = float(projectile.get("_life"))
+	for i in 60:
+		await physics_frame
+	ok = assert_true(is_instance_valid(projectile), "projectile not freed while inactive") and ok
+	ok = assert_eq(projectile.global_position, frozen_pos, "inactive projectile holds position") and ok
+	ok = assert_eq(float(projectile.get("_travelled")), frozen_travelled, "inactive projectile holds travelled") and ok
+	ok = assert_eq(float(projectile.get("_life")), frozen_life, "inactive projectile holds life") and ok
+	projectile.call("_physics_process", 1.0 / 60.0)
+	ok = assert_eq(projectile.global_position, frozen_pos, "direct tick moves nothing while inactive") and ok
+	ok = assert_eq(float(projectile.get("_travelled")), frozen_travelled, "direct tick advances no travelled while inactive") and ok
+	ok = assert_eq(float(projectile.get("_life")), frozen_life, "direct tick advances no life while inactive") and ok
+	var doomed = load("res://weapons/projectile.gd").new()
+	instance.add_child(doomed)
+	await process_frame
+	doomed.call("launch", from, from + Vector2(100, 0), 700.0, 1, 950.0)
+	doomed.set("_travelled", float(doomed.get("max_range")) - 0.01)
+	doomed.set("_life", float(doomed.get("_max_life")) - 0.01)
+	doomed.call("_physics_process", 1.0)
+	for i in 60:
+		await physics_frame
+	ok = assert_true(is_instance_valid(doomed), "near-limit projectile is not freed by expiry while inactive") and ok
+	if is_instance_valid(doomed):
+		ok = assert_eq(float(doomed.get("_travelled")), float(doomed.get("max_range")) - 0.01, "inactive projectile holds near-limit travelled") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	var resume_before: Vector2 = projectile.global_position
+	var freed := false
+	for i in 30:
+		await physics_frame
+		if not is_instance_valid(projectile):
+			freed = true
+			break
+	if is_instance_valid(projectile):
+		ok = assert_true(projectile.global_position.distance_to(resume_before) > 1.0, "projectile resumes displacing after reset (%.1f px)" % projectile.global_position.distance_to(resume_before)) and ok
+	else:
+		ok = assert_true(freed, "projectile resumes sim after reset (expired by range/life)") and ok
+	var doomed_freed := false
+	for i in 30:
+		await physics_frame
+		if not is_instance_valid(doomed):
+			doomed_freed = true
+			break
+	ok = assert_true(doomed_freed, "expiry resumes after reset") and ok
+	instance.queue_free()
+	await _clear_enemies()
+	var lone = load("res://weapons/projectile.gd").new()
+	root.add_child(lone)
+	await process_frame
+	lone.call("launch", Vector2.ZERO, Vector2(100, 0), 700.0, 1, 950.0)
+	lone.set_physics_process(false)
+	await process_frame
+	ok = assert_true(bool(lone.call("_is_run_active")), "detached projectile defaults to active") and ok
+	var lone_start: Vector2 = lone.global_position
+	for i in 10:
+		lone.call("_physics_process", 1.0 / 60.0)
+	ok = assert_true(lone.global_position.distance_to(lone_start) > 1.0, "detached projectile displaces (%.1f px)" % lone.global_position.distance_to(lone_start)) and ok
+	lone.queue_free()
 	await _clear_enemies()
 	return ok
 
