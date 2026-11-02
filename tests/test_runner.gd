@@ -54,6 +54,7 @@ func run_all() -> void:
 		"test_spawner_cap_five_holds_after_ten_spawn_burst",
 		"test_spawner_halts_when_run_inactive",
 		"test_spawner_halts_when_reparented_under_intermediate",
+		"test_spawner_resolves_player_under_intermediate",
 		"test_player_halts_when_run_inactive",
 		"test_player_halts_when_reparented_under_intermediate",
 		"test_main_health_wiring_halts_when_run_inactive",
@@ -754,6 +755,52 @@ func test_spawner_halts_when_run_inactive() -> bool:
 	ok = assert_eq(get_nodes_in_group("enemies").size(), 1, "detached spawner defaults to active") and ok
 	lone.queue_free()
 	dummy.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_spawner_resolves_player_under_intermediate() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var player := instance.get_node_or_null("Player") as Node2D
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if spawner == null or player == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	var middle := Node2D.new()
+	middle.name = "FactionLayer"
+	instance.add_child(middle)
+	var kept: Vector2 = (spawner as Node2D).global_position
+	instance.remove_child(spawner)
+	middle.add_child(spawner)
+	(spawner as Node2D).global_position = kept
+	await process_frame
+	(spawner as Node).set_physics_process(false)
+	ok = assert_true((player as Node2D).global_position != (spawner as Node2D).global_position, "fixture separates player and spawner positions") and ok
+	spawner.set("player_path", NodePath(""))
+	spawner.set("player", null)
+	spawner.call("_resolve_player")
+	ok = assert_true(spawner.get("player") == player, "reparented spawner resolves Player on first lookup") and ok
+	ok = assert_eq(spawner.call("_spawn_center"), (player as Node2D).global_position, "spawn center is player-centered under intermediate") and ok
+	var keep: Node2D = Node2D.new()
+	root.add_child(keep)
+	spawner.set("player", keep)
+	spawner.call("_resolve_player")
+	ok = assert_true(spawner.get("player") == keep, "valid injected player is never clobbered") and ok
+	keep.queue_free()
+	var source := FileAccess.get_file_as_string("res://spawner.gd")
+	ok = assert_true(not source.contains("\"../Player\""), "spawner drops hardcoded relative probe") and ok
+	ok = assert_true(source.contains("SPAWNER_STATUS"), "spawner retains SPAWNER_STATUS string") and ok
+	ok = assert_true(source.contains("SPAWNER_SPAWN"), "spawner retains SPAWNER_SPAWN string") and ok
+	instance.queue_free()
 	await _clear_enemies()
 	return ok
 
