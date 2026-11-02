@@ -104,6 +104,8 @@ func _connect_spawner_signals() -> void:
 
 
 func _on_spawner_alive_changed(count: int) -> void:
+	if not run_active:
+		return
 	_cached_alive = count
 	_refresh_hud()
 
