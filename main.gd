@@ -212,6 +212,11 @@ func reset_run() -> void:
 	spawner = get_node_or_null("Spawner") as Node2D
 	if spawner != null and is_instance_valid(spawner) and spawner.has_method("reset_peak"):
 		spawner.call("reset_peak")
+	if spawner != null and is_instance_valid(spawner) and spawner.has_method("clear_enemies"):
+		spawner.call("clear_enemies")
+	for child in get_children():
+		if is_instance_valid(child) and child.is_in_group("projectiles"):
+			child.queue_free()
 	if player != null and is_instance_valid(player) and player.has_method("restore_full_health"):
 		player.call("restore_full_health")
 	_connect_health_signals()
