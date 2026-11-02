@@ -101,6 +101,7 @@ func run_all() -> void:
 		"test_player_died_rewire_after_health_replace",
 		"test_player_health_rewire_on_replace",
 		"test_restart_run_restores_full_run",
+	"test_restore_full_health_rewires_after_swap",
 		"test_player_health_full_before_tree_entry",
 		"test_chaser_health_full_before_tree_entry",
 		"test_player_proxy_hp_fallback_detached",
@@ -2513,6 +2514,75 @@ func test_restart_run_restores_full_run() -> bool:
 	var label := instance.get_node_or_null("StatusLabel") as Label
 	ok = assert_true(label != null and not label.text.contains("GAME_OVER"), "HUD clears GAME_OVER after restart") and ok
 	chaser.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_restore_full_health_rewires_after_swap() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	player.call("take_damage", 30.0)
+	ok = assert_true(float(player.call("get_hp")) < 100.0, "original Health damaged before swap") and ok
+	var old_health := player.get_node_or_null("Health")
+	ok = assert_true(old_health != null, "original Health present before swap") and ok
+	if old_health == null:
+		instance.queue_free()
+		return false
+	# Swap the Health child (same remove/queue_free/add idiom as
+	# test_player_health_rewire_on_replace), damage the fresh node so the
+	# heal is observable, then restore in the SAME frame with no await in
+	# between. The cached proxy is left pointing at the detached node to
+	# reproduce the stale-cache state: add/remove_child delivery already
+	# re-seats the proxy synchronously, so only a stale cache proves that
+	# restore_full_health re-resolves instead of trusting the cache.
+	player.remove_child(old_health)
+	old_health.queue_free()
+	var fresh: Node = load("res://player/health.gd").new()
+	fresh.name = "Health"
+	player.add_child(fresh)
+	fresh.call("take_damage", 40.0)
+	ok = assert_true(float(fresh.call("get_hp")) < float(fresh.get("max_hp")), "fresh Health damaged before restore") and ok
+	player.set("health", old_health)
+	player.call("restore_full_health")
+	ok = assert_true(player.get("health") == fresh, "restore re-seats the health proxy on the live child") and ok
+	ok = assert_eq(float(player.call("get_hp")), 100.0, "restore heals the live Health to full") and ok
+	ok = assert_eq(float(fresh.call("get_hp")), float(fresh.get("max_hp")), "fresh node HP reads full after restore") and ok
+	ok = assert_true(float(old_health.call("get_hp")) < 100.0, "restore leaves the stale node untouched") and ok
+	var want := Callable(player, "_on_health_died")
+	ok = assert_true(fresh.is_connected("died", want), "restore wires fresh Health died") and ok
+	var conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			conns += 1
+	ok = assert_eq(conns, 1, "fresh Health carries exactly one died connection") and ok
+	var source := FileAccess.get_file_as_string("res://player.gd")
+	var body := source.substr(source.find("func restore_full_health"), 400)
+	ok = assert_true(body.contains("_refresh_health_wiring()"), "restore_full_health refreshes health wiring") and ok
+	ok = assert_true(not bool(instance.call("is_game_over")), "run active before lethal hit on replacement") and ok
+	player.call("take_damage", 100.0)
+	var over := false
+	for i in 60:
+		await physics_frame
+		if bool(instance.call("is_game_over")) and not bool(instance.call("is_run_active")):
+			over = true
+			break
+	ok = assert_true(over, "lethal hit on replaced Health ends the run within a second") and ok
+	ok = assert_true(bool(instance.get("game_over")), "game_over flag set after replacement death") and ok
 	instance.queue_free()
 	return ok
 

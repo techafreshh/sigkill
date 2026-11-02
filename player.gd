@@ -138,6 +138,7 @@ func take_damage(amount: float) -> void:
 
 
 func restore_full_health() -> void:
+	_refresh_health_wiring()
 	if health != null and is_instance_valid(health) and health.has_method("restore_full_health"):
 		health.call("restore_full_health")
 
