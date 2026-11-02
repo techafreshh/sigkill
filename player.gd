@@ -126,7 +126,9 @@ func _on_health_died() -> void:
 
 
 func get_hp() -> float:
-	_wire_health()
+	var live: Node = get_node_or_null("Health")
+	if live != null and is_instance_valid(live) and live.has_method("get_hp"):
+		return float(live.call("get_hp"))
 	if health != null and is_instance_valid(health) and health.has_method("get_hp"):
 		return float(health.call("get_hp"))
 	return max_hp
