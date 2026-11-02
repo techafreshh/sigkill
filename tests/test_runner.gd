@@ -110,6 +110,7 @@ func run_all() -> void:
 		"test_no_attack_input_action",
 		"test_combat_tuning_data_values",
 		"test_player_iframes_ignore_rapid_second_hit",
+		"test_player_heal_at_full_hp_emits_no_push",
 		"test_player_invuln_frozen_while_run_inactive",
 		"test_contact_damage_with_methodless_health_is_safe",
 		"test_player_contact_damage_reduces_hp",
@@ -3071,6 +3072,33 @@ func test_chaser_take_damage_reduces_health() -> bool:
 	ok = assert_true(chaser.is_in_group("enemies"), "partially damaged chaser stays in enemies group") and ok
 	ok = assert_true(not bool(chaser.call("is_dead")), "partial damage does not kill") and ok
 	chaser.queue_free()
+	return ok
+
+
+func test_player_heal_at_full_hp_emits_no_push() -> bool:
+	var ok := true
+	var health = load("res://player/health.gd").new()
+	var changed := [0]
+	var last := [0.0, 0.0]
+	var on_changed := func(current: float, maximum: float) -> void:
+		changed[0] += 1
+		last[0] = current
+		last[1] = maximum
+	health.connect("health_changed", on_changed)
+	health.call("heal", 10.0)
+	ok = assert_eq(changed[0], 0, "full-HP heal emits no push") and ok
+	ok = assert_eq(float(health.get("hp")), float(health.get("max_hp")), "full-HP heal leaves HP at max") and ok
+	health.call("take_damage", 30.0)
+	ok = assert_eq(changed[0], 1, "damage emits one push") and ok
+	changed[0] = 0
+	health.call("heal", 10.0)
+	ok = assert_eq(changed[0], 1, "partial heal emits exactly one push") and ok
+	ok = assert_eq(last[0], float(health.get("hp")), "heal push reports current HP") and ok
+	ok = assert_eq(last[1], float(health.get("max_hp")), "heal push reports maximum") and ok
+	health.call("heal", 1000.0)
+	ok = assert_eq(float(health.get("hp")), float(health.get("max_hp")), "overheal clamps at max_hp") and ok
+	ok = assert_eq(changed[0], 2, "overheal emits exactly one more push") and ok
+	health.queue_free()
 	return ok
 
 
