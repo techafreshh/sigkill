@@ -47,6 +47,7 @@ func run_all() -> void:
 		"test_spawner_ring_spawns_offscreen",
 		"test_spawner_enforces_cap",
 		"test_spawner_halts_when_run_inactive",
+		"test_player_halts_when_run_inactive",
 		"test_main_health_wiring_halts_when_run_inactive",
 		"test_main_spawner_wiring_halts_when_run_inactive",
 		"test_main_spawner_push_halts_when_run_inactive",
@@ -631,6 +632,75 @@ func test_spawner_halts_when_run_inactive() -> bool:
 	ok = assert_eq(get_nodes_in_group("enemies").size(), 1, "detached spawner defaults to active") and ok
 	lone.queue_free()
 	dummy.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_player_halts_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as CharacterBody2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null:
+		instance.queue_free()
+		return false
+	if spawner != null:
+		spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var active_before: Vector2 = player.global_position
+	Input.action_press("move_right")
+	for i in 30:
+		await physics_frame
+	var active_disp: float = player.global_position.distance_to(active_before)
+	ok = assert_true(active_disp > 10.0, "player displaces while run active (%.1f px)" % active_disp) and ok
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	var hp_before: float = float(player.call("get_hp"))
+	player.set("velocity", Vector2(220, 0))
+	var frozen_pos: Vector2 = player.global_position
+	for i in 60:
+		await physics_frame
+	ok = assert_eq(player.global_position, frozen_pos, "inactive player holds position") and ok
+	ok = assert_eq(player.velocity, Vector2.ZERO, "inactive player zeroes velocity") and ok
+	ok = assert_eq(float(player.call("get_hp")), hp_before, "inactive player HP frozen") and ok
+	player.call("_physics_process", 1.0 / 60.0)
+	ok = assert_eq(player.global_position, frozen_pos, "direct tick moves nothing while inactive") and ok
+	ok = assert_eq(player.velocity, Vector2.ZERO, "direct tick keeps zero velocity while inactive") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	var resume_before: Vector2 = player.global_position
+	for i in 30:
+		await physics_frame
+	var resume_disp: float = player.global_position.distance_to(resume_before)
+	ok = assert_true(resume_disp > 10.0, "player displaces again after reset (%.1f px)" % resume_disp) and ok
+	_release_move_actions()
+	instance.queue_free()
+	await _clear_enemies()
+	var lone := load("res://player.gd").new() as CharacterBody2D
+	ok = assert_true(lone != null, "detached player instantiates") and ok
+	if lone == null:
+		return false
+	ok = assert_true(bool(lone.call("_is_run_active")), "detached player defaults to active") and ok
+	root.add_child(lone)
+	lone.set_physics_process(false)
+	lone.set("velocity", Vector2.ZERO)
+	await process_frame
+	var lone_start: Vector2 = (lone as Node2D).global_position
+	_release_move_actions()
+	Input.action_press("move_right")
+	for i in 10:
+		lone.call("_physics_process", 1.0 / 60.0)
+	ok = assert_true(lone.velocity.length() > 0.0, "detached player still steers (speed=%.1f)" % lone.velocity.length()) and ok
+	ok = assert_true((lone as Node2D).global_position.distance_to(lone_start) > 1.0, "detached player displaces (%.1f px)" % (lone as Node2D).global_position.distance_to(lone_start)) and ok
+	_release_move_actions()
+	lone.queue_free()
 	await _clear_enemies()
 	return ok
 
