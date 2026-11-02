@@ -103,6 +103,7 @@ func run_all() -> void:
 		"test_main_hud_refresh_is_pure_paint",
 		"test_spawner_alive_count_tracks_spawn_and_died",
 		"test_spawner_kill_accounting_frozen_while_run_inactive",
+		"test_spawner_died_frozen_while_run_inactive",
 		"test_sanity_math",
 		"test_nominal_seconds_math",
 		"test_measured_clock_accumulates",
@@ -3031,6 +3032,71 @@ func test_spawner_kill_accounting_frozen_while_run_inactive() -> bool:
 	ok = assert_eq(int(spawner.call("get_alive")), cache_before - 1, "live died decrements spawner counter") and ok
 	ok = assert_eq(int(instance.call("get_kills")), kills_before + 1, "live died raises kills by exactly 1") and ok
 	ok = assert_eq(int(pushes[0]), pushes_before + 1, "live died pushes exactly once") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_spawner_died_frozen_while_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if spawner == null or label == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
+	await process_frame
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "no background spawns before batch") and ok
+	spawner.set("batch_size", 3)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("_accum", 0.0)
+	spawner.call("_physics_process", 0.6)
+	await process_frame
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 3, "known batch spawns three") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 3, "spawner cache tracks batch") and ok
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
+	var pushes: Array = [0]
+	var probe := func(_count: int) -> void:
+		pushes[0] = int(pushes[0]) + 1
+	spawner.connect("alive_changed", probe)
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	var frozen_alive := int(spawner.call("get_alive"))
+	var frozen_kills := int(instance.call("get_kills"))
+	var frozen_cached := int(instance.get("_cached_alive"))
+	var frozen_label := label.text
+	var frozen_group := get_nodes_in_group("enemies").size()
+	var probe_enemy := Node2D.new()
+	spawner.call("_on_enemy_died", probe_enemy)
+	probe_enemy.free()
+	ok = assert_eq(int(spawner.call("get_alive")), frozen_alive, "direct died leaves spawner counter frozen while inactive") and ok
+	ok = assert_eq(int(instance.call("get_kills")), frozen_kills, "direct died leaves kills frozen while inactive") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), frozen_cached, "direct died leaves push-cache frozen while inactive") and ok
+	ok = assert_eq(label.text, frozen_label, "direct died leaves HUD text frozen while inactive") and ok
+	ok = assert_eq(get_nodes_in_group("enemies").size(), frozen_group, "direct died spawns/frees nothing while inactive") and ok
+	ok = assert_eq(int(pushes[0]), 0, "direct died emits no alive_changed push while inactive") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	var alive_before := int(spawner.call("get_alive"))
+	var kills_before := int(instance.call("get_kills"))
+	var pushes_before := int(pushes[0])
+	var resume_enemy := Node2D.new()
+	spawner.call("_on_enemy_died", resume_enemy)
+	resume_enemy.free()
+	ok = assert_eq(int(spawner.call("get_alive")), alive_before - 1, "direct died decrements spawner counter once active") and ok
+	ok = assert_eq(int(instance.call("get_kills")), kills_before + 1, "direct died forwards exactly one kill once active") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), alive_before - 1, "direct died updates push-cache once active") and ok
+	ok = assert_eq(int(pushes[0]), pushes_before + 1, "direct died pushes exactly once once active") and ok
+	ok = assert_true(label.text.contains("ALIVE=%d" % (alive_before - 1)), "HUD shows resumed ALIVE after died") and ok
 	instance.queue_free()
 	return ok
 
