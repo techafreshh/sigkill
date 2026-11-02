@@ -89,6 +89,7 @@ func run_all() -> void:
 		"test_enemy_lethal_damage_frees_within_half_second",
 		"test_lethal_contact_ends_run_with_run_end_log",
 		"test_restart_run_restores_full_run",
+		"test_player_health_full_before_tree_entry",
 	]
 	await _teardown_test_fixtures()
 	for t: String in tests:
@@ -1925,5 +1926,32 @@ func test_restart_run_restores_full_run() -> bool:
 	var label := instance.get_node_or_null("StatusLabel") as Label
 	ok = assert_true(label != null and not label.text.contains("GAME_OVER"), "HUD clears GAME_OVER after restart") and ok
 	chaser.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_player_health_full_before_tree_entry() -> bool:
+	var ok := true
+	var health: Node = load("res://player/health.gd").new()
+	ok = assert_true(health != null, "health script instantiates") and ok
+	if health == null:
+		return false
+	ok = assert_true(not health.is_inside_tree(), "fresh Health reads pre-tree") and ok
+	ok = assert_eq(float(health.call("get_hp")), float(health.get("max_hp")), "pre-tree HP reads full") and ok
+	ok = assert_true(not bool(health.call("is_dead")), "pre-tree Health is not dead") and ok
+	health.free()
+	var packed := load("res://main.tscn") as PackedScene
+	ok = assert_true(packed != null, "main scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var instance := packed.instantiate()
+	ok = assert_true(not instance.is_inside_tree(), "instantiated main reads pre-tree") and ok
+	var mounted := instance.get_node_or_null("Player/Health")
+	ok = assert_true(mounted != null, "main scene mounts Health under Player") and ok
+	if mounted == null:
+		instance.queue_free()
+		return false
+	ok = assert_eq(float(mounted.call("get_hp")), float(mounted.get("max_hp")), "mounted pre-tree HP reads full") and ok
+	ok = assert_true(not bool(mounted.call("is_dead")), "mounted pre-tree Health is not dead") and ok
 	instance.queue_free()
 	return ok
