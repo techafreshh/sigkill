@@ -10,9 +10,14 @@ signal died
 @export var max_hp := 100.0
 @export var invuln_duration := 0.5
 
-var hp: float
+## Mirrors the max_hp default above; _init and _ready re-assert from max_hp.
+var hp: float = 100.0
 var _invuln := 0.0
 var _dead := false
+
+
+func _init() -> void:
+	hp = max_hp
 
 
 func _ready() -> void:
