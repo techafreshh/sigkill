@@ -70,6 +70,7 @@ func run_all() -> void:
 		"test_chaser_player_collide",
 		"test_chaser_does_not_pass_through_player",
 		"test_player_shoves_through_encirclement",
+		"test_player_shove_frozen_when_run_inactive",
 		"test_chaser_stops_at_contact_band",
 		"test_chaser_halts_when_run_inactive",
 		"test_projectile_halts_when_run_inactive",
@@ -1536,6 +1537,62 @@ func test_player_shoves_through_encirclement() -> bool:
 	Input.action_release("move_right")
 	var pushed: float = player.global_position.distance_to(before)
 	ok = assert_true(pushed > 50.0, "player shoves through encirclement (%.1f px)" % pushed) and ok
+	_release_move_actions()
+	instance.queue_free()
+	return ok
+
+
+func test_player_shove_frozen_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as CharacterBody2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	spawner.add_child(chaser)
+	chaser.global_position = player.global_position + Vector2(40, 0)
+	chaser.set("target", player)
+	chaser.set("max_health", 1000.0)
+	chaser.set("health", 1000.0)
+	await process_frame
+	chaser.global_position = player.global_position + Vector2(40, 0)
+	chaser.set("velocity", Vector2.ZERO)
+	var enemies: Array = [chaser]
+	player.call("_shove_crowd", 200.0, 1.0 / 60.0, enemies)
+	ok = assert_true((chaser.velocity as Vector2).length() > 0.0, "active direct shove mutates chaser velocity") and ok
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	chaser.set("velocity", Vector2.ZERO)
+	var frozen_vel: Vector2 = chaser.velocity
+	var frozen_pos: Vector2 = chaser.global_position
+	player.call("_shove_crowd", 200.0, 1.0 / 60.0, enemies)
+	ok = assert_eq(chaser.velocity, frozen_vel, "inactive direct shove leaves velocity unchanged") and ok
+	for i in 60:
+		await physics_frame
+	ok = assert_eq(chaser.velocity, frozen_vel, "inactive idle keeps chaser velocity frozen") and ok
+	ok = assert_eq(chaser.global_position, frozen_pos, "inactive chaser holds position") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	chaser.set("velocity", Vector2.ZERO)
+	player.call("_shove_crowd", 200.0, 1.0 / 60.0, [chaser])
+	ok = assert_true((chaser.velocity as Vector2).length() > 0.0, "shove resumes after reset") and ok
 	_release_move_actions()
 	instance.queue_free()
 	return ok
