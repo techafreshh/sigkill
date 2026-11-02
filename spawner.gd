@@ -65,6 +65,25 @@ func _physics_process(delta: float) -> void:
 		print("SPAWNER_STATUS get_nodes_in_group(\"enemies\").size()=%d MAX_ALIVE=%d" % [current, peak_alive])
 
 
+## Kill accounting: a spawner-produced chaser that emits died was lethally
+## damaged, so log the poof placeholder and forward the kill to the run
+## coordinator through the same guarded lookup shape as _is_run_active.
+func _on_enemy_died(enemy: Node) -> void:
+	var pos := Vector2.ZERO
+	if enemy != null and is_instance_valid(enemy) and enemy is Node2D:
+		pos = (enemy as Node2D).global_position
+	var coordinator := get_parent()
+	var kills := 1
+	if coordinator != null and is_instance_valid(coordinator):
+		if coordinator.has_method("get_kills"):
+			kills = int(coordinator.call("get_kills")) + 1
+		print("ENEMY_POOF XP_PLACEHOLDER kills=%d pos=(%.1f, %.1f)" % [kills, pos.x, pos.y])
+		if coordinator.has_method("register_kill"):
+			coordinator.call("register_kill")
+		return
+	print("ENEMY_POOF XP_PLACEHOLDER kills=%d pos=(%.1f, %.1f)" % [kills, pos.x, pos.y])
+
+
 func _resolve_player() -> void:
 	if player_path != null and not player_path.is_empty():
 		player = get_node_or_null(player_path) as Node2D
@@ -117,6 +136,8 @@ func _try_spawn() -> void:
 		chaser.global_position = center + Vector2(cos(angle), sin(angle)) * dist
 		if is_instance_valid(player):
 			chaser.set("target", player)
+		if chaser.has_signal("died"):
+			chaser.connect("died", _on_enemy_died.bind(chaser))
 		if verbose:
 			var now_alive := get_tree().get_nodes_in_group("enemies").size()
 			print("SPAWNER_SPAWN SPAWN_DIST=%.2f MIN_VIEW_RADIUS=%.2f ALIVE=%d" % [dist, radius, now_alive])

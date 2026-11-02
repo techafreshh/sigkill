@@ -7,6 +7,7 @@ extends Node2D
 var elapsed_seconds := 0.0
 var kill_count := 0
 var run_active := true
+var game_over := false
 var _hud_accum := 0.0
 
 var player: Node2D
@@ -57,6 +58,26 @@ func is_run_active() -> bool:
 	return run_active
 
 
+func is_game_over() -> bool:
+	return game_over
+
+
+## Lethal run end: freeze the sim clock, spawner, and HUD (player and enemy
+## motion keep running headless-harmlessly) and publish the greppable token.
+func end_run(reason: String = "death") -> void:
+	run_active = false
+	if reason == "death":
+		game_over = true
+		print("RUN_END=death game_over=true ERRORS=0 elapsed=%.2f kills=%d" % [elapsed_seconds, kill_count])
+	else:
+		print("RUN_END=%s" % reason)
+	_refresh_hud()
+
+
+func restart_run() -> void:
+	reset_run()
+
+
 func get_peak_alive() -> int:
 	if spawner == null or not is_instance_valid(spawner):
 		return 0
@@ -69,10 +90,22 @@ func reset_run() -> void:
 	elapsed_seconds = 0.0
 	kill_count = 0
 	run_active = true
+	game_over = false
 	_hud_accum = 0.0
 	if spawner != null and is_instance_valid(spawner) and spawner.has_method("reset_peak"):
 		spawner.call("reset_peak")
+	if player != null and is_instance_valid(player) and player.has_method("restore_full_health"):
+		player.call("restore_full_health")
 	_refresh_hud()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not game_over:
+		return
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if key.pressed and not key.echo and (key.keycode == KEY_R or key.physical_keycode == KEY_R):
+			restart_run()
 
 
 func _refresh_hud() -> void:
@@ -81,4 +114,9 @@ func _refresh_hud() -> void:
 	var alive := 0
 	if get_tree() != null:
 		alive = get_tree().get_nodes_in_group("enemies").size()
-	status_label.text = "SIGKILL T+%.1fs KILLS=%d ALIVE=%d" % [elapsed_seconds, kill_count, alive]
+	var hp := 100
+	if player != null and is_instance_valid(player) and player.has_method("get_hp"):
+		hp = int(player.call("get_hp"))
+	status_label.text = "SIGKILL T+%.1fs HP=%d KILLS=%d ALIVE=%d" % [elapsed_seconds, hp, kill_count, alive]
+	if game_over:
+		status_label.text += "\nGAME_OVER press R to restart"

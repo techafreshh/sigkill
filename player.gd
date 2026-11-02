@@ -9,14 +9,21 @@ const TERMINAL_THEME := preload("res://data/theme.tres")
 @export var shove_max_speed := 320.0
 @export var shove_acceleration := 6000.0
 @export var shove_radius := 128.0
+@export var contact_damage := 10.0
+@export var contact_radius := 26.0
 
 var theme: TerminalTheme
+
+@onready var health: Node = get_node_or_null("Health")
 
 
 func _ready() -> void:
 	add_to_group("player")
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	theme = TERMINAL_THEME as TerminalTheme
+	if health != null and health.has_signal("died"):
+		if not health.is_connected("died", _on_health_died):
+			health.connect("died", _on_health_died)
 	queue_redraw()
 
 
@@ -28,6 +35,7 @@ func _physics_process(delta: float) -> void:
 	var push := velocity.length()
 	move_and_slide()
 	_shove_crowd(push, delta)
+	_check_contact_damage()
 
 
 ## Crowd shove: a contact-only push cannot move a multi-layer pile, because
@@ -47,6 +55,57 @@ func _shove_crowd(push: float, delta: float) -> void:
 			if dist < 0.01 or dist > shove_radius:
 				continue
 			enemy.velocity = enemy.velocity.move_toward(offset.normalized() * shove_vel, shove_acceleration * delta)
+
+
+## Contact damage: per-tick enemies-group distance check mirroring _shove_crowd.
+## A touching enemy deals contact_damage through the Health node, whose
+## i-frame timer drops repeat touches while the overlap persists. Exact
+## overlap (dist < 0.01) still counts as contact: unlike the shove there is
+## no direction to normalize, so nothing to guard against.
+func _check_contact_damage() -> void:
+	if health == null or not is_instance_valid(health):
+		return
+	if bool(health.call("is_dead")):
+		return
+	for node in get_tree().get_nodes_in_group("enemies"):
+		if node == self or not (node is Node2D):
+			continue
+		var enemy := node as Node2D
+		if not is_instance_valid(enemy):
+			continue
+		var dist: float = enemy.global_position.distance_to(global_position)
+		if dist > contact_radius:
+			continue
+		var before: float = float(health.call("get_hp"))
+		health.call("take_damage", contact_damage)
+		var after: float = float(health.call("get_hp"))
+		if after < before:
+			print("PLAYER_HIT hp=%d damage=%d" % [int(after), int(contact_damage)])
+		break
+
+
+func _on_health_died() -> void:
+	var coordinator := get_parent()
+	if coordinator == null or not is_instance_valid(coordinator):
+		return
+	if coordinator.has_method("end_run"):
+		coordinator.call("end_run", "death")
+
+
+func get_hp() -> float:
+	if health != null and is_instance_valid(health) and health.has_method("get_hp"):
+		return float(health.call("get_hp"))
+	return 0.0
+
+
+func take_damage(amount: float) -> void:
+	if health != null and is_instance_valid(health) and health.has_method("take_damage"):
+		health.call("take_damage", amount)
+
+
+func restore_full_health() -> void:
+	if health != null and is_instance_valid(health) and health.has_method("restore_full_health"):
+		health.call("restore_full_health")
 
 
 func _draw() -> void:
