@@ -26,6 +26,32 @@ func _ready() -> void:
 	kill_count = 0
 	run_active = true
 	_hud_accum = 0.0
+	_connect_health_signals()
+	_refresh_hud()
+
+
+## Synchronous HUD refresh on player health events: non-lethal damage
+## otherwise trails the 0.25s poll by up to a full interval. Direct calls
+## only; _hud_accum keeps its overshoot schedule untouched.
+func _connect_health_signals() -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	var health: Node = player.get_node_or_null("Health")
+	if health == null or not is_instance_valid(health):
+		return
+	if health.has_signal("health_changed"):
+		if not health.is_connected("health_changed", _on_player_health_changed):
+			health.connect("health_changed", _on_player_health_changed)
+	if health.has_signal("died"):
+		if not health.is_connected("died", _on_player_died):
+			health.connect("died", _on_player_died)
+
+
+func _on_player_health_changed(_current: float, _maximum: float) -> void:
+	_refresh_hud()
+
+
+func _on_player_died() -> void:
 	_refresh_hud()
 
 
