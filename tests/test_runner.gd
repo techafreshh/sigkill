@@ -78,6 +78,7 @@ func run_all() -> void:
 		"test_main_exposes_run_api",
 		"test_main_clock_accumulates",
 		"test_main_kill_counter_and_reset",
+		"test_main_register_kill_frozen_while_run_inactive",
 		"test_main_reset_clears_peak",
 		"test_main_peak_and_reset_follow_fresh_spawner_between_ticks",
 		"test_main_hud_updates",
@@ -1633,6 +1634,49 @@ func test_main_kill_counter_and_reset() -> bool:
 	ok = assert_eq(int(instance.call("get_kills")), 0, "reset zeroes kills") and ok
 	ok = assert_eq(float(instance.call("get_elapsed")), 0.0, "reset zeroes clock") and ok
 	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_register_kill_frozen_while_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	if spawner != null:
+		spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	instance.call("register_kill")
+	var baseline := int(instance.call("get_kills"))
+	ok = assert_eq(baseline, 1, "baseline kill counted while active") and ok
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if label == null:
+		instance.queue_free()
+		return false
+	instance.call("end_run", "death")
+	await process_frame
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	ok = assert_true(label.text.contains("GAME_OVER"), "HUD shows GAME_OVER after end_run") and ok
+	var frozen_kills := int(instance.call("get_kills"))
+	var frozen_text := label.text
+	instance.call("register_kill")
+	instance.call("register_kill")
+	await process_frame
+	ok = assert_eq(int(instance.call("get_kills")), frozen_kills, "inactive register_kill leaves counter frozen") and ok
+	ok = assert_eq(label.text, frozen_text, "inactive register_kill leaves HUD frozen") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	var resumed_baseline := int(instance.call("get_kills"))
+	ok = assert_eq(resumed_baseline, 0, "reset zeroes kills") and ok
+	instance.call("register_kill")
+	ok = assert_eq(int(instance.call("get_kills")), resumed_baseline + 1, "kills count again once active") and ok
+	ok = assert_true(label.text.contains("KILLS=1"), "HUD KILLS token reflects resumed kill") and ok
 	instance.queue_free()
 	return ok
 
