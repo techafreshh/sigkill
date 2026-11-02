@@ -138,6 +138,9 @@ func run_all() -> void:
 		"test_player_get_hp_does_not_rewire",
 		"test_restart_run_restores_full_run",
 		"test_reset_run_uses_fresh_handles_after_swap",
+		"test_reset_run_clears_live_projectiles",
+		"test_reset_run_clears_live_enemies_and_zeroes_caches",
+		"test_reset_run_leaves_detached_stale_spawner_untouched",
 		"test_restore_full_health_rewires_after_swap",
 		"test_contact_damage_rewires_after_swap",
 		"test_player_health_full_before_tree_entry",
@@ -1007,13 +1010,24 @@ func test_main_spawner_push_halts_when_run_inactive() -> bool:
 	ok = assert_eq(label.text, stale_label, "inactive pushes leave HUD text frozen") and ok
 	instance.call("reset_run")
 	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
-	ok = assert_eq(int(instance.get("_cached_alive")), int(spawner.call("get_alive")), "reset re-primes cache from spawner") and ok
+	await process_frame
+	await process_frame
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "reset clears stale spawner children") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 0, "reset zeroes spawner counter") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), 0, "reset re-primes cache to zero") and ok
+	spawner.set("batch_size", 1)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("_accum", 0.0)
+	spawner.call("_physics_process", 0.6)
+	await process_frame
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
 	var live: Node = null
 	for enemy: Node in get_nodes_in_group("enemies"):
 		if is_instance_valid(enemy) and enemy.get_parent() == spawner:
 			live = enemy
 			break
-	ok = assert_true(live != null, "live chaser available after reset") and ok
+	ok = assert_true(live != null, "fresh chaser available after reset") and ok
 	if live == null:
 		instance.queue_free()
 		return false
@@ -1898,11 +1912,19 @@ func test_chaser_halts_when_run_inactive() -> bool:
 	ok = assert_eq(chaser.velocity, frozen_vel, "direct tick changes no velocity while inactive") and ok
 	instance.call("reset_run")
 	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
-	var resume_before: float = chaser.global_position.distance_to(player.global_position)
+	await process_frame
+	await process_frame
+	ok = assert_true(not is_instance_valid(chaser), "reset clears stale spawner-child chaser") and ok
+	var fresh := packed.instantiate() as CharacterBody2D
+	spawner.add_child(fresh)
+	fresh.global_position = player.global_position + Vector2(600, 0)
+	fresh.set("target", player)
+	await process_frame
+	var resume_before: float = fresh.global_position.distance_to(player.global_position)
 	for i in 60:
 		await physics_frame
-	var resume_after: float = chaser.global_position.distance_to(player.global_position)
-	ok = assert_true(resume_after < resume_before, "chaser resumes closing after reset (%.1f -> %.1f)" % [resume_before, resume_after]) and ok
+	var resume_after: float = fresh.global_position.distance_to(player.global_position)
+	ok = assert_true(resume_after < resume_before, "fresh chaser closes after reset (%.1f -> %.1f)" % [resume_before, resume_after]) and ok
 	instance.queue_free()
 	await _clear_enemies()
 	var dummy := Node2D.new()
@@ -2087,30 +2109,36 @@ func test_projectile_halts_when_run_inactive() -> bool:
 	ok = assert_true(is_instance_valid(probe) and not probe.is_queued_for_deletion(), "inactive hit does not free projectile") and ok
 	instance.call("reset_run")
 	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
-	var resume_before: Vector2 = projectile.global_position
-	var freed := false
-	for i in 30:
-		await physics_frame
-		if not is_instance_valid(projectile):
-			freed = true
-			break
-	if is_instance_valid(projectile):
-		ok = assert_true(projectile.global_position.distance_to(resume_before) > 1.0, "projectile resumes displacing after reset (%.1f px)" % projectile.global_position.distance_to(resume_before)) and ok
-	else:
-		ok = assert_true(freed, "projectile resumes sim after reset (expired by range/life)") and ok
-	var doomed_freed := false
-	for i in 30:
-		await physics_frame
-		if not is_instance_valid(doomed):
-			doomed_freed = true
-			break
-	ok = assert_true(doomed_freed, "expiry resumes after reset") and ok
-	var hp_active_before: float = float(victim.call("get_health"))
-	probe.call("_on_body_entered", victim)
-	ok = assert_eq(float(victim.call("get_health")), hp_active_before - 1.0, "active hit damages after reset") and ok
-	ok = assert_true(probe.is_queued_for_deletion(), "active hit queues free after reset") and ok
 	await process_frame
-	ok = assert_true(not is_instance_valid(probe), "active hit frees projectile after reset") and ok
+	await process_frame
+	ok = assert_true(not is_instance_valid(projectile), "reset clears live projectiles") and ok
+	ok = assert_true(not is_instance_valid(doomed), "reset clears near-limit projectiles") and ok
+	ok = assert_true(not is_instance_valid(probe), "reset clears staged probe projectile") and ok
+	ok = assert_true(is_instance_valid(victim), "reset leaves non-spawner enemies untouched") and ok
+	var fresh = load("res://weapons/projectile.gd").new()
+	instance.add_child(fresh)
+	await process_frame
+	fresh.call("launch", from, from + Vector2(100, 0), 700.0, 1, 950.0)
+	var resume_before: Vector2 = fresh.global_position
+	for i in 30:
+		await physics_frame
+	ok = assert_true(is_instance_valid(fresh), "fresh projectile stays alive after reset") and ok
+	if is_instance_valid(fresh):
+		ok = assert_true(fresh.global_position.distance_to(resume_before) > 1.0, "fresh projectile displaces after reset (%.1f px)" % fresh.global_position.distance_to(resume_before)) and ok
+	fresh.queue_free()
+	await process_frame
+	var probe2 = load("res://weapons/projectile.gd").new()
+	instance.add_child(probe2)
+	await process_frame
+	probe2.call("launch", from, from + Vector2(100, 0), 700.0, 1, 950.0)
+	probe2.set_physics_process(false)
+	await process_frame
+	var hp_active_before: float = float(victim.call("get_health"))
+	probe2.call("_on_body_entered", victim)
+	ok = assert_eq(float(victim.call("get_health")), hp_active_before - 1.0, "active hit damages after reset") and ok
+	ok = assert_true(probe2.is_queued_for_deletion(), "active hit queues free after reset") and ok
+	await process_frame
+	ok = assert_true(not is_instance_valid(probe2), "active hit frees projectile after reset") and ok
 	instance.queue_free()
 	await _clear_enemies()
 	var lone = load("res://weapons/projectile.gd").new()
@@ -3123,12 +3151,24 @@ func test_spawner_kill_accounting_frozen_while_run_inactive() -> bool:
 	ok = assert_eq(int(pushes[0]), 0, "inactive kills emit no alive_changed push") and ok
 	instance.call("reset_run")
 	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	await process_frame
+	await process_frame
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "reset clears stale spawner children") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 0, "reset zeroes spawner counter") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), 0, "reset re-primes cache to zero") and ok
+	spawner.set("batch_size", 1)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("_accum", 0.0)
+	spawner.call("_physics_process", 0.6)
+	await process_frame
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
 	var live: Node = null
 	for enemy: Node in get_nodes_in_group("enemies"):
 		if is_instance_valid(enemy) and enemy.get_parent() == spawner:
 			live = enemy
 			break
-	ok = assert_true(live != null, "live chaser available after reset") and ok
+	ok = assert_true(live != null, "fresh chaser available after reset") and ok
 	if live == null:
 		instance.queue_free()
 		return false
@@ -3200,6 +3240,13 @@ func test_spawner_died_frozen_while_run_inactive() -> bool:
 	ok = assert_eq(int(pushes[0]), 0, "direct died emits no alive_changed push while inactive") and ok
 	instance.call("reset_run")
 	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	await process_frame
+	await process_frame
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "reset clears stale spawner children") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 0, "reset zeroes spawner counter") and ok
+	spawner.set("batch_size", 1)
+	spawner.call("_try_spawn")
+	await process_frame
 	var alive_before := int(spawner.call("get_alive"))
 	var kills_before := int(instance.call("get_kills"))
 	var pushes_before := int(pushes[0])
@@ -4791,6 +4838,143 @@ func test_reset_run_uses_fresh_handles_after_swap() -> bool:
 		old_spawner.queue_free()
 	if old_player != null and is_instance_valid(old_player):
 		old_player.queue_free()
+	instance.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_reset_run_clears_live_projectiles() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
+	await _clear_enemies()
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "no enemies before live projectile") and ok
+	var projectile = load("res://weapons/projectile.gd").new()
+	instance.add_child(projectile)
+	await process_frame
+	var from: Vector2 = player.global_position + Vector2(-400, 0)
+	projectile.call("launch", from, from + Vector2(100, 0), 700.0, 1, 950.0)
+	ok = assert_true(is_instance_valid(projectile), "live projectile staged as Main child") and ok
+	ok = assert_eq(get_nodes_in_group("projectiles").size(), 1, "one live projectile before reset") and ok
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	await process_frame
+	await process_frame
+	ok = assert_true(get_nodes_in_group("projectiles").is_empty(), "reset clears live projectiles") and ok
+	instance.queue_free()
+	await process_frame
+	await process_frame
+	ok = assert_true(get_nodes_in_group("projectiles").is_empty(), "no stray projectiles after teardown") and ok
+	return ok
+
+
+func test_reset_run_clears_live_enemies_and_zeroes_caches() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if spawner == null or label == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
+	await process_frame
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "no background spawns before batch") and ok
+	spawner.set("batch_size", 3)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("_accum", 0.0)
+	spawner.call("_physics_process", 0.6)
+	await process_frame
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 3, "known batch spawns three") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 3, "spawner cache tracks batch") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), 3, "HUD cache follows spawner push") and ok
+	instance.call("end_run", "death")
+	ok = assert_true(bool(instance.call("is_game_over")), "run ended before reset") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	await process_frame
+	await process_frame
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "reset clears live spawner children") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 0, "reset zeroes spawner counter") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), 0, "reset re-primes push-cache to zero") and ok
+	ok = assert_eq(int(instance.call("get_peak_alive")), 0, "reset zeroes peak") and ok
+	ok = assert_true(label.text.contains("ALIVE=0"), "HUD shows ALIVE=0 after reset") and ok
+	ok = assert_true(not label.text.contains("GAME_OVER"), "HUD clears GAME_OVER after reset") and ok
+	instance.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_reset_run_leaves_detached_stale_spawner_untouched() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var old_spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(old_spawner != null, "main scene has Spawner") and ok
+	if old_spawner == null:
+		instance.queue_free()
+		return false
+	old_spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var stale_kid := packed.instantiate()
+	old_spawner.add_child(stale_kid)
+	old_spawner.set("peak_alive", 7)
+	old_spawner.set("alive_count", 1)
+	instance.remove_child(old_spawner)
+	var fresh: Node = load("res://spawner.gd").new()
+	fresh.name = "Spawner"
+	fresh.set("player_path", NodePath("../Player"))
+	fresh.set("spawn_interval", 3600.0)
+	fresh.set("peak_alive", 42)
+	instance.add_child(fresh)
+	var live_kid := packed.instantiate()
+	fresh.add_child(live_kid)
+	fresh.set("alive_count", 1)
+	# Synchronous reset with zero frames between swap and reset.
+	instance.call("reset_run")
+	ok = assert_eq(int(fresh.get("peak_alive")), 0, "reset zeroes live spawner peak") and ok
+	ok = assert_eq(int(fresh.call("get_alive")), 0, "reset zeroes live spawner counter") and ok
+	ok = assert_true(is_instance_valid(live_kid) and live_kid.is_queued_for_deletion(), "reset frees live spawner child") and ok
+	ok = assert_eq(int(old_spawner.get("peak_alive")), 7, "reset leaves detached stale peak untouched") and ok
+	ok = assert_eq(int(old_spawner.get("alive_count")), 1, "reset leaves detached stale counter untouched") and ok
+	ok = assert_true(is_instance_valid(stale_kid) and not stale_kid.is_queued_for_deletion(), "reset leaves detached stale child untouched") and ok
+	ok = assert_true(stale_kid.get_parent() == old_spawner, "stale child stays parented to stale spawner") and ok
+	ok = assert_eq(int(instance.call("get_peak_alive")), 0, "coordinator reads zero peak after reset") and ok
+	if old_spawner != null and is_instance_valid(old_spawner):
+		old_spawner.queue_free()
 	instance.queue_free()
 	await _clear_enemies()
 	return ok

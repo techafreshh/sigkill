@@ -37,6 +37,16 @@ func reset_peak() -> void:
 	peak_alive = 0
 
 
+## Reset helper: free live child enemies so a fresh run never resumes
+## stale actors. Zeroes the counter and pushes, like _on_enemy_died.
+func clear_enemies() -> void:
+	for child in get_children():
+		if is_instance_valid(child) and child.is_in_group("enemies"):
+			child.queue_free()
+	alive_count = 0
+	alive_changed.emit(alive_count)
+
+
 func _count_alive() -> int:
 	return get_tree().get_nodes_in_group("enemies").size()
 
