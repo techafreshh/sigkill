@@ -8,6 +8,7 @@ var elapsed_seconds := 0.0
 var kill_count := 0
 var run_active := true
 var game_over := false
+var run_reason := "death"
 var _hud_accum := 0.0
 var _cached_alive := 0
 
@@ -133,6 +134,10 @@ func is_game_over() -> bool:
 	return game_over
 
 
+func get_run_reason() -> String:
+	return run_reason
+
+
 ## Allowlist run-reason sanitizer: keep [A-Za-z0-9_-], map all else to _.
 func _sanitize_run_reason(reason: String) -> String:
 	if reason.is_empty():
@@ -153,6 +158,7 @@ func _sanitize_run_reason(reason: String) -> String:
 ## motion keep running headless-harmlessly) and publish the greppable token.
 func end_run(reason: String = "death") -> void:
 	var safe := _sanitize_run_reason(reason)
+	run_reason = safe
 	run_active = false
 	game_over = true
 	if safe == "death":
@@ -179,6 +185,7 @@ func reset_run() -> void:
 	kill_count = 0
 	run_active = true
 	game_over = false
+	run_reason = "death"
 	_hud_accum = 0.0
 	if spawner != null and is_instance_valid(spawner) and spawner.has_method("reset_peak"):
 		spawner.call("reset_peak")
@@ -205,4 +212,4 @@ func _refresh_hud() -> void:
 		hp = int(player.call("get_hp"))
 	status_label.text = "SIGKILL T+%.1fs HP=%d KILLS=%d ALIVE=%d" % [elapsed_seconds, hp, kill_count, alive]
 	if game_over:
-		status_label.text += "\nGAME_OVER press R to restart"
+		status_label.text += "\nGAME_OVER " + run_reason + " press R to restart"
