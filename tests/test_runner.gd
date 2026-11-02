@@ -87,6 +87,7 @@ func run_all() -> void:
 		"test_main_hud_rewires_after_player_replace",
 		"test_main_hud_shows_game_over_immediately",
 		"test_main_died_handler_ends_run_without_player_forwarding",
+		"test_died_has_single_end_run_path",
 		"test_main_hud_has_no_enemies_group_scan",
 		"test_main_hud_alive_tracks_spawner_cache",
 		"test_main_hud_refresh_is_pure_paint",
@@ -1944,20 +1945,25 @@ func test_main_died_handler_ends_run_without_player_forwarding() -> bool:
 	spawner.set("spawn_interval", 3600.0)
 	await _clear_enemies()
 	_release_move_actions()
-	ok = assert_true(not bool(instance.call("is_game_over")), "run active before isolated died handler") and ok
-	ok = assert_true(bool(instance.call("is_run_active")), "run active flag set before isolated died handler") and ok
+	ok = assert_true(not bool(instance.call("is_game_over")), "run active before single-path died handler") and ok
+	ok = assert_true(bool(instance.call("is_run_active")), "run active flag set before single-path died handler") and ok
 	var health := player.get_node_or_null("Health")
-	ok = assert_true(health != null, "Health present before isolating Main") and ok
+	ok = assert_true(health != null, "Health present for single-path check") and ok
 	if health == null:
 		instance.queue_free()
 		return false
 	var player_cb := Callable(player, "_on_health_died")
-	ok = assert_true(health.is_connected("died", player_cb), "player-side forwarding wired before isolation") and ok
-	if health.is_connected("died", player_cb):
-		health.disconnect("died", player_cb)
-	ok = assert_true(not health.is_connected("died", player_cb), "player forwarding disconnected to isolate Main") and ok
+	ok = assert_true(not health.is_connected("died", player_cb), "no player-side forwarding by construction") and ok
+	ok = assert_true(not player.has_method("_on_health_died"), "player exposes no died forwarder") and ok
 	var main_cb := Callable(instance, "_on_player_died")
-	ok = assert_true(health.is_connected("died", main_cb), "Main died wiring intact after isolation") and ok
+	ok = assert_true(health.is_connected("died", main_cb), "Main died wiring present by construction") and ok
+	var main_conns := 0
+	for entry: Dictionary in health.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == main_cb:
+			main_conns += 1
+	ok = assert_eq(main_conns, 1, "Health died carries exactly one Main connection") and ok
+	ok = assert_eq(health.get_signal_connection_list("died").size(), 1, "Health died carries exactly one subscriber total") and ok
 	instance.call("_on_player_died")
 	await process_frame
 	await physics_frame
@@ -1989,6 +1995,73 @@ func test_main_died_handler_ends_run_without_player_forwarding() -> bool:
 		else:
 			end_block = source.substr(end_idx, end_next - end_idx)
 	ok = assert_true(end_block.contains("_refresh_hud"), "end_run reaches _refresh_hud") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_died_has_single_end_run_path() -> bool:
+	var ok := true
+	var player_source := FileAccess.get_file_as_string("res://player.gd")
+	ok = assert_eq(player_source.count("end_run"), 0, "player wires zero end_run paths") and ok
+	ok = assert_eq(player_source.count('"died"'), 0, "player wires zero died subscriptions") and ok
+	ok = assert_true(not player_source.contains("end_run"), "player source holds no end_run text") and ok
+	ok = assert_true(not player_source.contains('"died"'), "player source holds no died text") and ok
+	var main_source := FileAccess.get_file_as_string("res://main.gd")
+	ok = assert_eq(main_source.count('end_run("death")'), 1, "coordinator holds exactly one end_run death call site") and ok
+	var died_idx := main_source.find("func _on_player_died")
+	ok = assert_true(died_idx >= 0, "main.gd defines _on_player_died") and ok
+	var died_block := ""
+	if died_idx >= 0:
+		var next_func := main_source.find("\nfunc ", died_idx + 1)
+		if next_func < 0:
+			died_block = main_source.substr(died_idx)
+		else:
+			died_block = main_source.substr(died_idx, next_func - died_idx)
+	ok = assert_true(died_block.contains('end_run("death")'), "single call site lives in _on_player_died") and ok
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var health := player.get_node_or_null("Health")
+	ok = assert_true(health != null, "Health present for single-path check") and ok
+	if health == null:
+		instance.queue_free()
+		return false
+	var player_cb := Callable(player, "_on_health_died")
+	ok = assert_true(not health.is_connected("died", player_cb), "no player-side forwarding by construction") and ok
+	ok = assert_true(not player.has_method("_on_health_died"), "player exposes no died forwarder") and ok
+	var main_cb := Callable(instance, "_on_player_died")
+	ok = assert_true(health.is_connected("died", main_cb), "Health died wired only to Main") and ok
+	var main_conns := 0
+	for entry: Dictionary in health.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == main_cb:
+			main_conns += 1
+	ok = assert_eq(main_conns, 1, "Health died carries exactly one Main connection") and ok
+	ok = assert_eq(health.get_signal_connection_list("died").size(), 1, "Health died carries exactly one subscriber total") and ok
+	ok = assert_true(main_source.contains("RUN_END=death"), "coordinator logs RUN_END=death") and ok
+	health.emit_signal("died")
+	await process_frame
+	await physics_frame
+	ok = assert_true(bool(instance.call("is_game_over")), "emitted died ends the run via single path") and ok
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after single-path died") and ok
+	ok = assert_true(bool(instance.get("game_over")), "game_over flag set via single path") and ok
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER via single path") and ok
+	instance.call("_on_player_died")
+	await process_frame
+	ok = assert_true(bool(instance.call("is_game_over")), "second end_run stays latched") and ok
 	instance.queue_free()
 	return ok
 
@@ -3123,16 +3196,27 @@ func test_player_died_rewire_after_health_replace() -> bool:
 	await process_frame
 	for i in 10:
 		await physics_frame
-		if fresh.is_connected("died", Callable(player, "_on_health_died")):
+		if fresh.is_connected("died", Callable(instance, "_on_player_died")):
 			break
-	ok = assert_true(fresh.is_connected("died", Callable(player, "_on_health_died")), "tick rewire connects fresh Health died") and ok
+	var player_cb := Callable(player, "_on_health_died")
+	ok = assert_true(not fresh.is_connected("died", player_cb), "player wires no died forwarding after swap") and ok
+	ok = assert_true(not player.has_method("_on_health_died"), "player exposes no died forwarder") and ok
+	var main_cb := Callable(instance, "_on_player_died")
+	ok = assert_true(fresh.is_connected("died", main_cb), "coordinator rewires fresh Health died") and ok
 	player.call("_refresh_health_wiring")
 	var conns := 0
 	for entry: Dictionary in fresh.get_signal_connection_list("died"):
 		var cal: Callable = entry["callable"]
-		if cal == Callable(player, "_on_health_died"):
+		if cal == main_cb:
 			conns += 1
-	ok = assert_eq(conns, 1, "re-wiring same Health keeps exactly one died connection") and ok
+	ok = assert_eq(conns, 1, "fresh Health keeps exactly one Main died connection") and ok
+	var player_conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == player_cb:
+			player_conns += 1
+	ok = assert_eq(player_conns, 0, "fresh Health keeps zero player died connections") and ok
+	ok = assert_true(player.get("health") == fresh, "health proxy follows the swapped child") and ok
 	ok = assert_true(not bool(instance.call("is_game_over")), "run active before lethal hit on replacement") and ok
 	player.call("take_damage", 100.0)
 	var over := false
@@ -3147,8 +3231,8 @@ func test_player_died_rewire_after_health_replace() -> bool:
 	var label := instance.get_node_or_null("StatusLabel") as Label
 	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER line") and ok
 	var source := FileAccess.get_file_as_string("res://player.gd")
-	ok = assert_true(source.contains("has_signal(\"died\")"), "player retains has_signal died guard") and ok
-	ok = assert_true(source.contains("is_connected"), "player guards died re-wire with is_connected") and ok
+	ok = assert_eq(source.count("end_run"), 0, "player holds zero end_run paths") and ok
+	ok = assert_eq(source.count('"died"'), 0, "player holds zero died subscriptions") and ok
 	instance.queue_free()
 	return ok
 
@@ -3180,15 +3264,22 @@ func test_player_health_rewire_on_replace() -> bool:
 	player.add_child(fresh)
 	await process_frame
 	await process_frame
+	for i in 10:
+		await physics_frame
+		if fresh.is_connected("died", Callable(instance, "_on_player_died")):
+			break
 	ok = assert_true(player.get("health") == fresh, "health proxy follows the swapped child") and ok
-	var want := Callable(player, "_on_health_died")
-	ok = assert_true(fresh.is_connected("died", want), "child-order notification wires fresh Health died") and ok
+	var player_cb := Callable(player, "_on_health_died")
+	ok = assert_true(not fresh.is_connected("died", player_cb), "swap wires zero player died connections") and ok
+	ok = assert_true(not player.has_method("_on_health_died"), "player exposes no died forwarder") and ok
+	var want := Callable(instance, "_on_player_died")
+	ok = assert_true(fresh.is_connected("died", want), "child-order notification wires fresh Health died via Main") and ok
 	var conns := 0
 	for entry: Dictionary in fresh.get_signal_connection_list("died"):
 		var cal: Callable = entry["callable"]
 		if cal == want:
 			conns += 1
-	ok = assert_eq(conns, 1, "swapped Health carries exactly one died connection") and ok
+	ok = assert_eq(conns, 1, "swapped Health carries exactly one Main died connection") and ok
 	player.call("_wire_health")
 	player.call("_wire_health")
 	var rewired := 0
@@ -3196,7 +3287,13 @@ func test_player_health_rewire_on_replace() -> bool:
 		var cal: Callable = entry["callable"]
 		if cal == want:
 			rewired += 1
-	ok = assert_eq(rewired, 1, "re-wiring twice keeps exactly one died connection") and ok
+	ok = assert_eq(rewired, 1, "re-wiring twice keeps exactly one Main died connection") and ok
+	var stale_player := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == player_cb:
+			stale_player += 1
+	ok = assert_eq(stale_player, 0, "re-wiring twice keeps zero player died connections") and ok
 	ok = assert_true(not bool(instance.call("is_game_over")), "run active before lethal hit on replacement") and ok
 	player.call("take_damage", 100.0)
 	var over := false
@@ -3211,8 +3308,8 @@ func test_player_health_rewire_on_replace() -> bool:
 	var label := instance.get_node_or_null("StatusLabel") as Label
 	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER line") and ok
 	var source := FileAccess.get_file_as_string("res://player.gd")
-	ok = assert_true(source.contains("has_signal(\"died\")"), "player retains has_signal died guard") and ok
-	ok = assert_true(source.contains("is_connected"), "player guards died re-wire with is_connected") and ok
+	ok = assert_eq(source.count("end_run"), 0, "player holds zero end_run paths") and ok
+	ok = assert_eq(source.count('"died"'), 0, "player holds zero died subscriptions") and ok
 	instance.queue_free()
 	return ok
 
@@ -3239,29 +3336,35 @@ func test_player_rewire_same_node_is_noop() -> bool:
 	if health == null:
 		instance.queue_free()
 		return false
-	var want := Callable(player, "_on_health_died")
-	ok = assert_true(health.is_connected("died", want), "original Health wired to died") and ok
+	var player_cb := Callable(player, "_on_health_died")
+	ok = assert_true(not health.is_connected("died", player_cb), "original Health carries no player forwarding") and ok
+	ok = assert_true(not player.has_method("_on_health_died"), "player exposes no died forwarder") and ok
+	var want := Callable(instance, "_on_player_died")
+	ok = assert_true(health.is_connected("died", want), "original Health wired to Main died") and ok
 	var before := 0
 	for entry: Dictionary in health.get_signal_connection_list("died"):
 		var cal: Callable = entry["callable"]
 		if cal == want:
 			before += 1
-	ok = assert_eq(before, 1, "same-node Health carries exactly one died connection") and ok
+	ok = assert_eq(before, 1, "same-node Health carries exactly one Main died connection") and ok
 	player.call("take_damage", 0.0)
 	player.call("get_hp")
 	player.call("_wire_health")
 	player.call("take_damage", 0.0)
 	player.call("get_hp")
 	player.call("_wire_health")
-	ok = assert_true(health.is_connected("died", want), "repeated lazy re-wires stay connected") and ok
+	ok = assert_true(not health.is_connected("died", player_cb), "repeated proxy refresh adds no player forwarding") and ok
+	ok = assert_true(health.is_connected("died", want), "repeated proxy refresh keeps Main wired") and ok
 	var kept := 0
 	for entry: Dictionary in health.get_signal_connection_list("died"):
 		var cal: Callable = entry["callable"]
 		if cal == want:
 			kept += 1
-	ok = assert_eq(kept, 1, "repeated lazy re-wires keep exactly one died connection") and ok
+	ok = assert_eq(kept, 1, "repeated proxy refresh keeps exactly one Main died connection") and ok
 	var source := FileAccess.get_file_as_string("res://player.gd")
 	ok = assert_true(source.contains("_wired_health != current"), "player guards re-wire with identity check") and ok
+	ok = assert_eq(source.count("end_run"), 0, "player holds zero end_run paths") and ok
+	ok = assert_eq(source.count('"died"'), 0, "player holds zero died subscriptions") and ok
 	var old_health := player.get_node_or_null("Health")
 	player.remove_child(old_health)
 	old_health.queue_free()
@@ -3270,21 +3373,26 @@ func test_player_rewire_same_node_is_noop() -> bool:
 	player.add_child(fresh)
 	await process_frame
 	await process_frame
+	for i in 10:
+		await physics_frame
+		if fresh.is_connected("died", want):
+			break
 	ok = assert_true(player.get("health") == fresh, "health proxy follows the swapped child") and ok
-	ok = assert_true(fresh.is_connected("died", want), "swap wires fresh Health died") and ok
+	ok = assert_true(fresh.is_connected("died", want), "swap wires fresh Health died via Main") and ok
+	ok = assert_true(not fresh.is_connected("died", player_cb), "swap wires zero player died connections") and ok
 	var swapped := 0
 	for entry: Dictionary in fresh.get_signal_connection_list("died"):
 		var cal: Callable = entry["callable"]
 		if cal == want:
 			swapped += 1
-	ok = assert_eq(swapped, 1, "swapped Health carries exactly one died connection") and ok
+	ok = assert_eq(swapped, 1, "swapped Health carries exactly one Main died connection") and ok
 	var stale := 0
 	if is_instance_valid(old_health):
 		for entry: Dictionary in old_health.get_signal_connection_list("died"):
 			var cal: Callable = entry["callable"]
 			if cal == want:
 				stale += 1
-	ok = assert_eq(stale, 0, "old Health carries no died connection after swap") and ok
+	ok = assert_eq(stale, 0, "old Health carries no Main died connection after swap") and ok
 	ok = assert_true(not bool(instance.call("is_game_over")), "run active before lethal hit on replacement") and ok
 	player.call("take_damage", 100.0)
 	var over := false
@@ -3320,14 +3428,14 @@ func test_player_get_hp_does_not_rewire() -> bool:
 	if health == null:
 		instance.queue_free()
 		return false
-	var want := Callable(player, "_on_health_died")
-	ok = assert_true(health.is_connected("died", want), "player-side died wired before disconnect") and ok
-	if health.is_connected("died", want):
-		health.disconnect("died", want)
-	ok = assert_true(not health.is_connected("died", want), "player-side died disconnected") and ok
+	var player_cb := Callable(player, "_on_health_died")
+	ok = assert_true(not health.is_connected("died", player_cb), "player-side died absent by construction") and ok
+	ok = assert_true(not player.has_method("_on_health_died"), "player exposes no died forwarder") and ok
+	var main_cb := Callable(instance, "_on_player_died")
+	ok = assert_true(health.is_connected("died", main_cb), "Main died wired before reads") and ok
 	var live_hp := float(health.call("get_hp"))
 	var hp_before := float(player.call("get_hp"))
-	ok = assert_eq(hp_before, live_hp, "get_hp reads live Health after disconnect") and ok
+	ok = assert_eq(hp_before, live_hp, "get_hp reads live Health") and ok
 	var label := instance.get_node_or_null("StatusLabel") as Label
 	var hud_before := ""
 	if label != null:
@@ -3335,13 +3443,19 @@ func test_player_get_hp_does_not_rewire() -> bool:
 	player.call("get_hp")
 	player.call("get_hp")
 	instance.call("_refresh_hud")
-	ok = assert_true(not health.is_connected("died", want), "reads leave player-side died disconnected") and ok
+	ok = assert_true(not health.is_connected("died", player_cb), "reads add no player-side died") and ok
 	var readded := 0
 	for entry: Dictionary in health.get_signal_connection_list("died"):
 		var cal: Callable = entry["callable"]
-		if cal == want:
+		if cal == player_cb:
 			readded += 1
 	ok = assert_eq(readded, 0, "reads re-add zero player-side died connections") and ok
+	var main_kept := 0
+	for entry: Dictionary in health.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == main_cb:
+			main_kept += 1
+	ok = assert_eq(main_kept, 1, "reads keep exactly one Main died connection") and ok
 	ok = assert_eq(float(player.call("get_hp")), live_hp, "get_hp still returns live HP after reads") and ok
 	var hud_label := instance.get_node_or_null("StatusLabel") as Label
 	if hud_label != null:
@@ -3361,6 +3475,8 @@ func test_player_get_hp_does_not_rewire() -> bool:
 	ok = assert_true(not get_body.contains("_wire_health"), "get_hp performs no health rewire") and ok
 	ok = assert_true(not get_body.contains("connect"), "get_hp performs no signal connect") and ok
 	ok = assert_true(not get_body.contains("disconnect"), "get_hp performs no signal disconnect") and ok
+	ok = assert_eq(source.count("end_run"), 0, "player holds zero end_run paths") and ok
+	ok = assert_eq(source.count('"died"'), 0, "player holds zero died subscriptions") and ok
 	var take_body := source.substr(source.find("func take_damage"), 400)
 	ok = assert_true(take_body.contains("_wire_health()"), "take_damage keeps health wiring preamble") and ok
 	var restore_body := source.substr(source.find("func restore_full_health"), 400)
@@ -3561,17 +3677,27 @@ func test_restore_full_health_rewires_after_swap() -> bool:
 	ok = assert_eq(float(player.call("get_hp")), 100.0, "restore heals the live Health to full") and ok
 	ok = assert_eq(float(fresh.call("get_hp")), float(fresh.get("max_hp")), "fresh node HP reads full after restore") and ok
 	ok = assert_true(float(old_health.call("get_hp")) < 100.0, "restore leaves the stale node untouched") and ok
-	var want := Callable(player, "_on_health_died")
-	ok = assert_true(fresh.is_connected("died", want), "restore wires fresh Health died") and ok
+	await process_frame
+	for i in 10:
+		await physics_frame
+		if fresh.is_connected("died", Callable(instance, "_on_player_died")):
+			break
+	var player_cb := Callable(player, "_on_health_died")
+	ok = assert_true(not fresh.is_connected("died", player_cb), "restore wires zero player died connections") and ok
+	ok = assert_true(not player.has_method("_on_health_died"), "player exposes no died forwarder") and ok
+	var want := Callable(instance, "_on_player_died")
+	ok = assert_true(fresh.is_connected("died", want), "restore path leaves fresh Health died wired via Main") and ok
 	var conns := 0
 	for entry: Dictionary in fresh.get_signal_connection_list("died"):
 		var cal: Callable = entry["callable"]
 		if cal == want:
 			conns += 1
-	ok = assert_eq(conns, 1, "fresh Health carries exactly one died connection") and ok
+	ok = assert_eq(conns, 1, "fresh Health carries exactly one Main died connection") and ok
 	var source := FileAccess.get_file_as_string("res://player.gd")
 	var body := source.substr(source.find("func restore_full_health"), 400)
 	ok = assert_true(body.contains("_wire_health()"), "restore_full_health refreshes health wiring") and ok
+	ok = assert_eq(source.count("end_run"), 0, "player holds zero end_run paths") and ok
+	ok = assert_eq(source.count('"died"'), 0, "player holds zero died subscriptions") and ok
 	ok = assert_true(not bool(instance.call("is_game_over")), "run active before lethal hit on replacement") and ok
 	player.call("take_damage", 100.0)
 	var over := false
@@ -3645,17 +3771,26 @@ func test_contact_damage_rewires_after_swap() -> bool:
 	ok = assert_true(player.get("health") == fresh, "contact tick re-seats the health proxy on the live child") and ok
 	ok = assert_eq(float(fresh.call("get_hp")), float(fresh.get("max_hp")) - per_hit, "live Health takes exactly one summed contact tick") and ok
 	ok = assert_true(not is_instance_valid(old_health) or float(old_health.call("get_hp")) == stale_hp, "contact tick leaves the stale node untouched") and ok
-	var want := Callable(player, "_on_health_died")
-	ok = assert_true(fresh.is_connected("died", want), "contact tick wires fresh Health died") and ok
+	for i in 10:
+		await physics_frame
+		if fresh.is_connected("died", Callable(instance, "_on_player_died")):
+			break
+	var player_cb := Callable(player, "_on_health_died")
+	ok = assert_true(not fresh.is_connected("died", player_cb), "contact tick wires zero player died connections") and ok
+	ok = assert_true(not player.has_method("_on_health_died"), "player exposes no died forwarder") and ok
+	var want := Callable(instance, "_on_player_died")
+	ok = assert_true(fresh.is_connected("died", want), "contact tick leaves fresh Health died wired via Main") and ok
 	var conns := 0
 	for entry: Dictionary in fresh.get_signal_connection_list("died"):
 		var cal: Callable = entry["callable"]
 		if cal == want:
 			conns += 1
-	ok = assert_eq(conns, 1, "fresh Health carries exactly one died connection") and ok
+	ok = assert_eq(conns, 1, "fresh Health carries exactly one Main died connection") and ok
 	var source := FileAccess.get_file_as_string("res://player.gd")
 	var body := source.substr(source.find("func _check_contact_damage"), 500)
 	ok = assert_true(body.contains("_wire_health()"), "contact tick refreshes health wiring") and ok
+	ok = assert_eq(source.count("end_run"), 0, "player holds zero end_run paths") and ok
+	ok = assert_eq(source.count('"died"'), 0, "player holds zero died subscriptions") and ok
 	chaser.queue_free()
 	instance.queue_free()
 	return ok
