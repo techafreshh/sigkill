@@ -39,11 +39,20 @@ func _ready() -> void:
 ## otherwise trails the 0.25s poll by up to a full interval. Direct calls
 ## only; _hud_accum keeps its overshoot schedule untouched.
 func _connect_health_signals() -> void:
-	if player == null or not is_instance_valid(player):
-		player = get_node_or_null("Player") as Node2D
-	if player == null or not is_instance_valid(player):
+	var current := get_node_or_null("Player") as Node2D
+	if current == null or not is_instance_valid(current):
+		if _wired_health != null and is_instance_valid(_wired_health):
+			if _wired_health.has_signal("health_changed"):
+				if _wired_health.is_connected("health_changed", _on_player_health_changed):
+					_wired_health.disconnect("health_changed", _on_player_health_changed)
+			if _wired_health.has_signal("died"):
+				if _wired_health.is_connected("died", _on_player_died):
+					_wired_health.disconnect("died", _on_player_died)
+		player = current
+		_wired_health = null
 		return
-	var health: Node = player.get_node_or_null("Health")
+	player = current
+	var health: Node = current.get_node_or_null("Health")
 	if _wired_health != null and is_instance_valid(_wired_health) and _wired_health != health:
 		if _wired_health.has_signal("health_changed"):
 			if _wired_health.is_connected("health_changed", _on_player_health_changed):

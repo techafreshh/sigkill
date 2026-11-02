@@ -83,6 +83,7 @@ func run_all() -> void:
 		"test_main_hud_reflects_damage_immediately",
 		"test_main_hud_rewires_after_health_replace",
 		"test_main_hud_rewires_after_spawner_replace",
+		"test_main_hud_rewires_after_player_replace",
 		"test_main_hud_shows_game_over_immediately",
 		"test_main_died_handler_ends_run_without_player_forwarding",
 		"test_main_hud_has_no_enemies_group_scan",
@@ -1727,6 +1728,108 @@ func test_main_hud_rewires_after_spawner_replace() -> bool:
 	ok = assert_true(label.text.contains("ALIVE=5"), "HUD shows ALIVE=5 without interval wait") and ok
 	if old_spawner != null and is_instance_valid(old_spawner):
 		old_spawner.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_main_hud_rewires_after_player_replace() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(instance.get_node_or_null("Player") != null, "main scene has Player") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if spawner == null or label == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var old_player: Node = instance.get_node_or_null("Player")
+	var old_health: Node = (old_player as Node).get_node_or_null("Health")
+	ok = assert_true(old_player != null, "original Player present before swap") and ok
+	ok = assert_true(old_health != null, "original Health present before swap") and ok
+	instance.remove_child(old_player)
+	var fresh := CharacterBody2D.new()
+	fresh.name = "Player"
+	fresh.set_script(load("res://player.gd"))
+	var fresh_health: Node = load("res://player/health.gd").new()
+	fresh_health.name = "Health"
+	fresh.add_child(fresh_health)
+	instance.add_child(fresh)
+	var want_changed := Callable(instance, "_on_player_health_changed")
+	var want_died := Callable(instance, "_on_player_died")
+	var wired := false
+	for i in 10:
+		await physics_frame
+		if fresh_health.is_connected("health_changed", want_changed) and fresh_health.is_connected("died", want_died):
+			wired = true
+			break
+	ok = assert_true(wired, "physics-tick rewire connects fresh Player Health signals") and ok
+	ok = assert_true(fresh_health.is_connected("health_changed", want_changed), "fresh Player Health health_changed wired") and ok
+	ok = assert_true(fresh_health.is_connected("died", want_died), "fresh Player Health died wired") and ok
+	ok = assert_true(instance.get("player") == fresh, "coordinator handle follows fresh Player") and ok
+	var changed_conns := 0
+	for entry: Dictionary in fresh_health.get_signal_connection_list("health_changed"):
+		var changed_cal: Callable = entry["callable"]
+		if changed_cal == want_changed:
+			changed_conns += 1
+	ok = assert_eq(changed_conns, 1, "fresh Player Health carries exactly one health_changed connection") and ok
+	var died_conns := 0
+	for entry: Dictionary in fresh_health.get_signal_connection_list("died"):
+		var died_cal: Callable = entry["callable"]
+		if died_cal == want_died:
+			died_conns += 1
+	ok = assert_eq(died_conns, 1, "fresh Player Health carries exactly one died connection") and ok
+	instance.call("_connect_health_signals")
+	instance.call("_connect_health_signals")
+	var re_changed := 0
+	for entry: Dictionary in fresh_health.get_signal_connection_list("health_changed"):
+		var re_changed_cal: Callable = entry["callable"]
+		if re_changed_cal == want_changed:
+			re_changed += 1
+	ok = assert_eq(re_changed, 1, "re-wiring twice keeps exactly one health_changed connection") and ok
+	var re_died := 0
+	for entry: Dictionary in fresh_health.get_signal_connection_list("died"):
+		var re_died_cal: Callable = entry["callable"]
+		if re_died_cal == want_died:
+			re_died += 1
+	ok = assert_eq(re_died, 1, "re-wiring twice keeps exactly one died connection") and ok
+	if old_health != null and is_instance_valid(old_health):
+		var stale := 0
+		if old_health.has_signal("health_changed"):
+			for entry: Dictionary in old_health.get_signal_connection_list("health_changed"):
+				var stale_cal: Callable = entry["callable"]
+				if stale_cal == want_changed:
+					stale += 1
+		if old_health.has_signal("died"):
+			for entry: Dictionary in old_health.get_signal_connection_list("died"):
+				var stale_died_cal: Callable = entry["callable"]
+				if stale_died_cal == want_died:
+					stale += 1
+		ok = assert_eq(stale, 0, "stale Health carries zero coordinator connections") and ok
+	instance.set("_hud_accum", 0.0)
+	fresh.call("take_damage", 10.0)
+	ok = assert_eq(int(fresh.call("get_hp")), 90, "non-lethal hit on fresh Player reduces HP to 90") and ok
+	await process_frame
+	await physics_frame
+	ok = assert_true(label.text.contains("HP=90"), "HUD shows HP=90 within 2 frames after swap, no interval wait") and ok
+	ok = assert_true(not bool(instance.call("is_game_over")), "non-lethal hit after swap does not end run") and ok
+	for i in 40:
+		await physics_frame
+	instance.set("_hud_accum", 0.0)
+	fresh.call("take_damage", 100.0)
+	await process_frame
+	await physics_frame
+	ok = assert_true(bool(instance.call("is_game_over")), "lethal hit after swap ends run within 2 frames") and ok
+	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER within 2 frames after swap") and ok
+	if old_player != null and is_instance_valid(old_player):
+		old_player.queue_free()
 	instance.queue_free()
 	return ok
 
