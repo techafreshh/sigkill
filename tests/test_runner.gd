@@ -3120,9 +3120,11 @@ func test_bolt_halts_when_run_inactive() -> bool:
 	var frozen_shots: int = int(bolt.get("shots"))
 	var frozen_count: int = get_nodes_in_group("projectiles").size()
 	var frozen_hp: float = float(chaser.call("get_health"))
+	var cooldown := bolt.get_node_or_null("Cooldown") as Timer
 	for i in 60:
 		await physics_frame
 	ok = assert_eq(int(bolt.get("shots")), frozen_shots, "inactive bolt holds shots") and ok
+	ok = assert_true(is_instance_valid(cooldown) and cooldown.paused, "inactive bolt freezes cooldown phase") and ok
 	ok = assert_eq(get_nodes_in_group("projectiles").size(), frozen_count, "inactive bolt spawns no projectiles") and ok
 	ok = assert_eq(float(chaser.call("get_health")), frozen_hp, "inactive bolt deals no damage") and ok
 	bolt.call("_try_fire")
@@ -3139,6 +3141,7 @@ func test_bolt_halts_when_run_inactive() -> bool:
 			resumed = true
 			break
 	ok = assert_true(resumed, "bolt resumes firing after reset") and ok
+	ok = assert_true(is_instance_valid(cooldown) and not cooldown.paused, "bolt cooldown unpauses after reset") and ok
 	chaser.queue_free()
 	instance.queue_free()
 	await _clear_enemies()
