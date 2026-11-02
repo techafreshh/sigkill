@@ -21,11 +21,11 @@ var _wired_health: Node
 
 
 func _wire_health() -> void:
-	if _wired_health != null and is_instance_valid(_wired_health):
+	var current: Node = get_node_or_null("Health")
+	if _wired_health != null and is_instance_valid(_wired_health) and _wired_health != current:
 		if _wired_health.has_signal("died"):
 			if _wired_health.is_connected("died", _on_health_died):
 				_wired_health.disconnect("died", _on_health_died)
-	var current: Node = get_node_or_null("Health")
 	health = current
 	if health != null and is_instance_valid(health):
 		if health.has_signal("died"):
