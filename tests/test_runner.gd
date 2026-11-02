@@ -14,6 +14,7 @@ var failed := 0
 func _initialize() -> void:
 	await run_all()
 	print("Results: %d passed, %d failed" % [passed, failed])
+	print("TESTS_PASSED=%d" % passed)
 	quit(1 if failed > 0 else 0)
 
 
@@ -46,6 +47,10 @@ func run_all() -> void:
 		"test_teardown_resets_fixture_state",
 		"test_spawner_ring_spawns_offscreen",
 		"test_spawner_enforces_cap",
+		"test_damage_hp30_bolt10_two_hits_leave_10",
+		"test_damage_hp30_bolt10_three_hits_kill",
+		"test_iframes_half_second_window_ignores_rapid_second_hit",
+		"test_spawner_cap_five_holds_after_ten_spawn_burst",
 		"test_spawner_halts_when_run_inactive",
 		"test_spawner_halts_when_reparented_under_intermediate",
 		"test_player_halts_when_run_inactive",
@@ -592,6 +597,96 @@ func test_spawner_enforces_cap() -> bool:
 	var alive := get_nodes_in_group("enemies").size()
 	ok = assert_true(alive <= 5, "spawner respects overridden cap (alive=%d)" % alive) and ok
 	instance.queue_free()
+	return ok
+
+
+func test_damage_hp30_bolt10_two_hits_leave_10() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate()
+	chaser.set("max_health", 30.0)
+	root.add_child(chaser)
+	await process_frame
+	ok = assert_eq(float(chaser.call("get_health")), 30.0, "HP30 fixture starts at 30") and ok
+	chaser.call("take_damage", 10.0)
+	chaser.call("take_damage", 10.0)
+	ok = assert_eq(float(chaser.call("get_health")), 10.0, "two bolt hits leave hp==10") and ok
+	ok = assert_true(not bool(chaser.call("is_dead")), "two hits do not kill HP30 enemy") and ok
+	chaser.queue_free()
+	return ok
+
+
+func test_damage_hp30_bolt10_three_hits_kill() -> bool:
+	var ok := true
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate()
+	chaser.set("max_health", 30.0)
+	root.add_child(chaser)
+	await process_frame
+	var died_count := [0]
+	var on_died := func() -> void:
+		died_count[0] += 1
+	chaser.connect("died", on_died)
+	chaser.call("take_damage", 10.0)
+	chaser.call("take_damage", 10.0)
+	chaser.call("take_damage", 10.0)
+	ok = assert_true(bool(chaser.call("is_dead")), "three bolt hits kill HP30 enemy") and ok
+	ok = assert_eq(float(chaser.call("get_health")), 0.0, "lethal third hit leaves hp==0") and ok
+	ok = assert_eq(died_count[0], 1, "died emitted exactly once") and ok
+	ok = assert_true(chaser.is_queued_for_deletion(), "lethal damage queues free") and ok
+	await process_frame
+	await process_frame
+	ok = assert_true(not is_instance_valid(chaser) or not chaser.is_in_group("enemies"), "dead chaser leaves enemies group") and ok
+	return ok
+
+
+func test_iframes_half_second_window_ignores_rapid_second_hit() -> bool:
+	var ok := true
+	var health = load("res://player/health.gd").new()
+	root.add_child(health)
+	health.set_physics_process(false)
+	await process_frame
+	ok = assert_eq(float(health.get("invuln_duration")), 0.5, "i-frame window is 0.5s") and ok
+	ok = assert_eq(float(health.call("get_hp")), 100.0, "health starts at 100") and ok
+	health.call("take_damage", 10.0)
+	ok = assert_eq(float(health.call("get_hp")), 90.0, "first hit reduces HP to 90") and ok
+	health.call("take_damage", 10.0)
+	ok = assert_eq(float(health.call("get_hp")), 90.0, "rapid second hit within 0.5s ignored") and ok
+	for i in 6:
+		health.call("_physics_process", 0.1)
+	health.call("take_damage", 10.0)
+	ok = assert_eq(float(health.call("get_hp")), 80.0, "hit after window applies, HP 80") and ok
+	health.queue_free()
+	return ok
+
+
+func test_spawner_cap_five_holds_after_ten_spawn_burst() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var spawner: Node = load("res://spawner.gd").new()
+	root.add_child(spawner)
+	spawner.set_physics_process(false)
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	spawner.set("player", dummy)
+	spawner.set("max_entities", 5)
+	spawner.set("batch_size", 1)
+	spawner.set("spawn_interval", 0.5)
+	await process_frame
+	for i in 10:
+		spawner.call("_try_spawn")
+	var grouped := get_nodes_in_group("enemies").size()
+	ok = assert_true(grouped <= 5, "ten forced spawns with cap 5 hold alive<=5 (alive=%d)" % grouped) and ok
+	ok = assert_true(int(spawner.call("get_alive")) <= 5, "spawner cache holds cap after burst") and ok
+	spawner.queue_free()
+	dummy.queue_free()
+	await _clear_enemies()
 	return ok
 
 
