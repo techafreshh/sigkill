@@ -83,6 +83,8 @@ func _on_enemy_died(enemy: Node) -> void:
 		alive_count -= 1
 	else:
 		alive_count = 0
+	if not _is_run_active():
+		return
 	alive_changed.emit(alive_count)
 	var pos := Vector2.ZERO
 	if enemy != null and is_instance_valid(enemy) and enemy is Node2D:
