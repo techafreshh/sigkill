@@ -106,6 +106,7 @@ func run_all() -> void:
 		"test_player_died_rewire_after_health_replace",
 		"test_player_health_rewire_on_replace",
 		"test_player_rewire_same_node_is_noop",
+		"test_player_get_hp_does_not_rewire",
 		"test_restart_run_restores_full_run",
 		"test_restore_full_health_rewires_after_swap",
 		"test_contact_damage_rewires_after_swap",
@@ -2771,6 +2772,79 @@ func test_player_rewire_same_node_is_noop() -> bool:
 			over = true
 			break
 	ok = assert_true(over, "lethal hit on replaced Health ends the run within a second") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_player_get_hp_does_not_rewire() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var health := player.get_node_or_null("Health")
+	ok = assert_true(health != null, "Health present before disconnect") and ok
+	if health == null:
+		instance.queue_free()
+		return false
+	var want := Callable(player, "_on_health_died")
+	ok = assert_true(health.is_connected("died", want), "player-side died wired before disconnect") and ok
+	if health.is_connected("died", want):
+		health.disconnect("died", want)
+	ok = assert_true(not health.is_connected("died", want), "player-side died disconnected") and ok
+	var live_hp := float(health.call("get_hp"))
+	var hp_before := float(player.call("get_hp"))
+	ok = assert_eq(hp_before, live_hp, "get_hp reads live Health after disconnect") and ok
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	var hud_before := ""
+	if label != null:
+		hud_before = label.text
+	player.call("get_hp")
+	player.call("get_hp")
+	instance.call("_refresh_hud")
+	ok = assert_true(not health.is_connected("died", want), "reads leave player-side died disconnected") and ok
+	var readded := 0
+	for entry: Dictionary in health.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			readded += 1
+	ok = assert_eq(readded, 0, "reads re-add zero player-side died connections") and ok
+	ok = assert_eq(float(player.call("get_hp")), live_hp, "get_hp still returns live HP after reads") and ok
+	var hud_label := instance.get_node_or_null("StatusLabel") as Label
+	if hud_label != null:
+		ok = assert_eq(hud_label.text, hud_before, "HUD text unchanged by read-only refresh") and ok
+	else:
+		ok = assert_true(false, "HUD label present after reads") and ok
+	var source := FileAccess.get_file_as_string("res://player.gd")
+	var get_idx := source.find("func get_hp")
+	ok = assert_true(get_idx >= 0, "player.gd defines get_hp") and ok
+	var get_body := ""
+	if get_idx >= 0:
+		var get_next := source.find("\nfunc ", get_idx + 1)
+		if get_next < 0:
+			get_body = source.substr(get_idx)
+		else:
+			get_body = source.substr(get_idx, get_next - get_idx)
+	ok = assert_true(not get_body.contains("_wire_health"), "get_hp performs no health rewire") and ok
+	ok = assert_true(not get_body.contains("connect"), "get_hp performs no signal connect") and ok
+	ok = assert_true(not get_body.contains("disconnect"), "get_hp performs no signal disconnect") and ok
+	var take_body := source.substr(source.find("func take_damage"), 400)
+	ok = assert_true(take_body.contains("_wire_health()"), "take_damage keeps health wiring preamble") and ok
+	var restore_body := source.substr(source.find("func restore_full_health"), 400)
+	ok = assert_true(restore_body.contains("_wire_health()"), "restore_full_health keeps health wiring preamble") and ok
+	var contact_body := source.substr(source.find("func _check_contact_damage"), 500)
+	ok = assert_true(contact_body.contains("_wire_health()"), "contact tick keeps health wiring preamble") and ok
 	instance.queue_free()
 	return ok
 
