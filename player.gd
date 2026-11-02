@@ -19,17 +19,30 @@ var theme: TerminalTheme
 @onready var health: Node = get_node_or_null("Health")
 
 
+func _refresh_health_wiring() -> void:
+	var current: Node = get_node_or_null("Health")
+	if current != health:
+		if health != null and is_instance_valid(health):
+			if health.has_signal("died"):
+				if health.is_connected("died", _on_health_died):
+					health.disconnect("died", _on_health_died)
+		health = current
+	if health != null and is_instance_valid(health):
+		if health.has_signal("died"):
+			if not health.is_connected("died", _on_health_died):
+				health.connect("died", _on_health_died)
+
+
 func _ready() -> void:
 	add_to_group("player")
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	theme = TERMINAL_THEME as TerminalTheme
-	if health != null and health.has_signal("died"):
-		if not health.is_connected("died", _on_health_died):
-			health.connect("died", _on_health_died)
+	_refresh_health_wiring()
 	queue_redraw()
 
 
 func _physics_process(delta: float) -> void:
+	_refresh_health_wiring()
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var target := input * speed
 	var rate := acceleration if input.length() > 0.0 else friction
@@ -102,12 +115,14 @@ func _on_health_died() -> void:
 
 
 func get_hp() -> float:
+	_refresh_health_wiring()
 	if health != null and is_instance_valid(health) and health.has_method("get_hp"):
 		return float(health.call("get_hp"))
 	return max_hp
 
 
 func take_damage(amount: float) -> void:
+	_refresh_health_wiring()
 	if health != null and is_instance_valid(health) and health.has_method("take_damage"):
 		health.call("take_damage", amount)
 
