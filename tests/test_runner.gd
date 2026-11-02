@@ -1632,7 +1632,8 @@ func test_projectile_frees_on_first_hit() -> bool:
 	var projectile = load("res://weapons/projectile.gd").new()
 	root.add_child(projectile)
 	await process_frame
-	projectile.call("launch", Vector2.ZERO, Vector2(120, 0), 700.0, 1, 700.0)
+	# 950.0 is the current Bolt/projectile range default (not 700.0 projectile speed).
+	projectile.call("launch", Vector2.ZERO, Vector2(120, 0), 700.0, 1, 950.0)
 	ok = assert_eq(projectile.collision_layer, 4, "projectile collision_layer is 4") and ok
 	ok = assert_eq(projectile.collision_mask, 1, "projectile collision_mask is 1") and ok
 	var freed := false
