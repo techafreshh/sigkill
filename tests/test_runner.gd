@@ -109,6 +109,7 @@ func run_all() -> void:
 		"test_no_attack_input_action",
 		"test_combat_tuning_data_values",
 		"test_player_iframes_ignore_rapid_second_hit",
+		"test_player_invuln_frozen_while_run_inactive",
 		"test_contact_damage_with_methodless_health_is_safe",
 		"test_player_contact_damage_reduces_hp",
 		"test_player_stacked_contact_damage_sums",
@@ -3128,6 +3129,62 @@ func test_player_iframes_ignore_rapid_second_hit() -> bool:
 	player.call("take_damage", 10.0)
 	ok = assert_eq(int(player.call("get_hp")), 80, "hit after i-frames expire reduces HP again") and ok
 	instance.queue_free()
+	return ok
+
+
+func test_player_invuln_frozen_while_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	var health: Node = player.get_node_or_null("Health")
+	ok = assert_true(health != null, "player has Health node") and ok
+	if health == null:
+		instance.queue_free()
+		return false
+	player.call("take_damage", 10.0)
+	ok = assert_eq(int(player.call("get_hp")), 90, "first hit reduces HP to 90") and ok
+	var frozen: float = float(health.get("_invuln"))
+	ok = assert_true(frozen > 0.0, "i-frame timer running after hit") and ok
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	for i in 60:
+		await physics_frame
+		ok = assert_eq(float(health.get("_invuln")), frozen, "inactive invuln timer holds value") and ok
+	player.call("take_damage", 10.0)
+	ok = assert_eq(int(player.call("get_hp")), 90, "rapid second hit still ignored while frozen") and ok
+	health.call("_physics_process", 1.0 / 60.0)
+	ok = assert_eq(float(health.get("_invuln")), frozen, "direct tick is no-op while inactive") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	ok = assert_eq(int(player.call("get_hp")), 100, "reset restores full HP") and ok
+	player.call("take_damage", 10.0)
+	ok = assert_eq(int(player.call("get_hp")), 90, "hit lands on fresh timer after reset") and ok
+	for i in 36:
+		await physics_frame
+	player.call("take_damage", 10.0)
+	ok = assert_eq(int(player.call("get_hp")), 80, "hit lands again after resumed decay") and ok
+	instance.queue_free()
+	var lone = load("res://player/health.gd").new()
+	root.add_child(lone)
+	lone.set_physics_process(false)
+	lone.set("_invuln", 0.5)
+	lone.call("_physics_process", 1.0 / 60.0)
+	ok = assert_true(float(lone.get("_invuln")) < 0.5, "detached health defaults to active") and ok
+	lone.queue_free()
+	await _clear_enemies()
 	return ok
 
 
