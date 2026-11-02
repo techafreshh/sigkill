@@ -122,15 +122,15 @@ func is_game_over() -> bool:
 	return game_over
 
 
-## Lethal run end: freeze the sim clock, spawner, and HUD (player and enemy
+## Terminal run end: freeze the sim clock, spawner, and HUD (player and enemy
 ## motion keep running headless-harmlessly) and publish the greppable token.
 func end_run(reason: String = "death") -> void:
 	run_active = false
+	game_over = true
 	if reason == "death":
-		game_over = true
 		print("RUN_END=death game_over=true ERRORS=0 elapsed=%.2f kills=%d" % [elapsed_seconds, kill_count])
 	else:
-		print("RUN_END=%s" % reason)
+		print("RUN_END=%s game_over=true ERRORS=0 elapsed=%.2f kills=%d" % [reason, elapsed_seconds, kill_count])
 	_refresh_hud()
 
 
