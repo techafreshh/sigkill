@@ -201,14 +201,14 @@ func reset_run() -> void:
 	game_over = false
 	run_reason = "death"
 	_hud_accum = 0.0
-	var live := get_node_or_null("Spawner") as Node2D
-	var target: Node = live if live != null and is_instance_valid(live) else spawner
-	if target != null and is_instance_valid(target) and target.has_method("reset_peak"):
-		target.call("reset_peak")
-	if live != null and is_instance_valid(live):
-		spawner = live
+	player = get_node_or_null("Player") as Node2D
+	spawner = get_node_or_null("Spawner") as Node2D
+	if spawner != null and is_instance_valid(spawner) and spawner.has_method("reset_peak"):
+		spawner.call("reset_peak")
 	if player != null and is_instance_valid(player) and player.has_method("restore_full_health"):
 		player.call("restore_full_health")
+	_connect_health_signals()
+	_connect_spawner_signals()
 	_refresh_hud()
 
 
