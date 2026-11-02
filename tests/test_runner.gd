@@ -90,7 +90,8 @@ func run_all() -> void:
 		"test_no_attack_input_action",
 		"test_combat_tuning_data_values",
 		"test_player_iframes_ignore_rapid_second_hit",
-		"test_player_contact_damage_reduces_hp",
+	"test_player_contact_damage_reduces_hp",
+		"test_player_stacked_contact_damage_sums",
 		"test_enemy_died_wires_kill_and_xp_log",
 		"test_enemy_lethal_damage_frees_within_half_second",
 		"test_lethal_contact_ends_run_with_run_end_log",
@@ -1909,6 +1910,52 @@ func test_player_contact_damage_reduces_hp() -> bool:
 			break
 	ok = assert_true(touched, "contact with chaser reduces HP within 30 frames") and ok
 	chaser.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_player_stacked_contact_damage_sums() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var per_hit := float(player.get("contact_damage"))
+	var chasers: Array = []
+	for i in 3:
+		var chaser := packed.instantiate() as CharacterBody2D
+		root.add_child(chaser)
+		chaser.global_position = player.global_position
+		chaser.set("speed", 0.0)
+		chaser.set("target", player)
+		chasers.append(chaser)
+	var touched := false
+	for i in 30:
+		await physics_frame
+		if float(player.call("get_hp")) < 100.0:
+			touched = true
+			break
+	ok = assert_true(touched, "stacked contact reduces HP within 30 frames") and ok
+	ok = assert_eq(int(player.call("get_hp")), int(100.0 - 3.0 * per_hit), "3 overlapping chasers deal summed damage in one tick") and ok
+	for chaser in chasers:
+		if is_instance_valid(chaser):
+			chaser.queue_free()
 	instance.queue_free()
 	return ok
 
