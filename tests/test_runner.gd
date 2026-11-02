@@ -70,6 +70,7 @@ func run_all() -> void:
 		"test_chaser_does_not_pass_through_player",
 		"test_player_shoves_through_encirclement",
 		"test_chaser_stops_at_contact_band",
+		"test_chaser_halts_when_run_inactive",
 		"test_chaser_has_take_damage",
 		"test_chaser_take_damage_reduces_health",
 		"test_chaser_take_damage_kills_at_zero",
@@ -1499,6 +1500,83 @@ func test_chaser_stops_at_contact_band() -> bool:
 	ok = assert_true(final_dist >= 15.0 and final_dist <= 60.0, "chaser holds standoff (dist=%.1f)" % final_dist) and ok
 	chaser.queue_free()
 	instance.queue_free()
+	return ok
+
+
+func test_chaser_halts_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	spawner.add_child(chaser)
+	chaser.global_position = player.global_position + Vector2(600, 0)
+	chaser.set("target", player)
+	chaser.set("max_health", 1000.0)
+	chaser.set("health", 1000.0)
+	await process_frame
+	var before: float = chaser.global_position.distance_to(player.global_position)
+	for i in 60:
+		await physics_frame
+	var approaching: float = chaser.global_position.distance_to(player.global_position)
+	ok = assert_true(approaching < before, "chaser closes on player while active (%.1f -> %.1f)" % [before, approaching]) and ok
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	var frozen_pos: Vector2 = chaser.global_position
+	var frozen_vel: Vector2 = chaser.velocity
+	for i in 60:
+		await physics_frame
+	ok = assert_eq(chaser.global_position, frozen_pos, "inactive chaser holds position") and ok
+	ok = assert_eq(chaser.velocity, frozen_vel, "inactive chaser holds velocity") and ok
+	chaser.call("_physics_process", 1.0 / 60.0)
+	ok = assert_eq(chaser.global_position, frozen_pos, "direct tick moves nothing while inactive") and ok
+	ok = assert_eq(chaser.velocity, frozen_vel, "direct tick changes no velocity while inactive") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	var resume_before: float = chaser.global_position.distance_to(player.global_position)
+	for i in 60:
+		await physics_frame
+	var resume_after: float = chaser.global_position.distance_to(player.global_position)
+	ok = assert_true(resume_after < resume_before, "chaser resumes closing after reset (%.1f -> %.1f)" % [resume_before, resume_after]) and ok
+	instance.queue_free()
+	await _clear_enemies()
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	dummy.global_position = Vector2(500, 0)
+	var lone := packed.instantiate() as CharacterBody2D
+	root.add_child(lone)
+	lone.global_position = Vector2.ZERO
+	lone.set("target", dummy)
+	lone.set("velocity", Vector2.ZERO)
+	lone.set_physics_process(false)
+	await process_frame
+	lone.set("velocity", Vector2.ZERO)
+	var lone_start: Vector2 = lone.global_position
+	for i in 10:
+		lone.call("_physics_process", 1.0 / 60.0)
+	ok = assert_true(lone.velocity.length() > 0.0, "detached chaser defaults to active (speed=%.1f)" % lone.velocity.length()) and ok
+	ok = assert_true(lone.global_position.distance_to(lone_start) > 1.0, "detached chaser displaces (%.1f px)" % lone.global_position.distance_to(lone_start)) and ok
+	lone.queue_free()
+	dummy.queue_free()
+	await _clear_enemies()
 	return ok
 
 
