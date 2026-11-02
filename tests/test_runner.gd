@@ -76,6 +76,7 @@ func run_all() -> void:
 		"test_main_clock_accumulates",
 		"test_main_kill_counter_and_reset",
 		"test_main_reset_clears_peak",
+		"test_main_peak_and_reset_follow_fresh_spawner_between_ticks",
 		"test_main_hud_updates",
 		"test_main_hud_preserves_overshoot",
 		"test_main_hud_zero_interval_no_hang",
@@ -1434,6 +1435,41 @@ func test_main_reset_clears_peak() -> bool:
 	ok = assert_eq(int(instance.call("get_kills")), 0, "reset still zeroes kills") and ok
 	ok = assert_eq(float(instance.call("get_elapsed")), 0.0, "reset still zeroes clock") and ok
 	ok = assert_true(bool(instance.call("is_run_active")), "reset still reactivates run") and ok
+	instance.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_main_peak_and_reset_follow_fresh_spawner_between_ticks() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var old_spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(old_spawner != null, "main scene has Spawner") and ok
+	if old_spawner == null:
+		instance.queue_free()
+		return false
+	old_spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	old_spawner.set("peak_alive", 7)
+	instance.remove_child(old_spawner)
+	var fresh: Node = load("res://spawner.gd").new()
+	fresh.name = "Spawner"
+	fresh.set("player_path", NodePath("../Player"))
+	fresh.set("spawn_interval", 3600.0)
+	fresh.set("peak_alive", 42)
+	instance.add_child(fresh)
+	ok = assert_eq(int(instance.call("get_peak_alive")), 42, "same-frame peak read follows fresh Spawner") and ok
+	instance.call("reset_run")
+	ok = assert_eq(int(fresh.get("peak_alive")), 0, "reset_run zeroes fresh spawner peak") and ok
+	ok = assert_eq(int(old_spawner.get("peak_alive")), 7, "reset_run leaves detached stale spawner untouched") and ok
+	ok = assert_eq(int(instance.call("get_peak_alive")), 0, "coordinator reads zero peak after reset") and ok
+	if old_spawner != null and is_instance_valid(old_spawner):
+		old_spawner.queue_free()
 	instance.queue_free()
 	await _clear_enemies()
 	return ok
