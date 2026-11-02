@@ -68,6 +68,8 @@ func _shove_crowd(push: float, delta: float) -> void:
 func _check_contact_damage() -> void:
 	if health == null or not is_instance_valid(health):
 		return
+	if not health.has_method("is_dead") or not health.has_method("get_hp") or not health.has_method("take_damage"):
+		return
 	if bool(health.call("is_dead")):
 		return
 	var touchers := 0
