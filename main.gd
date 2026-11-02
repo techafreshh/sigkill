@@ -14,6 +14,7 @@ var player: Node2D
 var spawner: Node2D
 var ground: Node2D
 var status_label: Label
+var _wired_health: Node
 
 
 func _ready() -> void:
@@ -35,9 +36,19 @@ func _ready() -> void:
 ## only; _hud_accum keeps its overshoot schedule untouched.
 func _connect_health_signals() -> void:
 	if player == null or not is_instance_valid(player):
+		player = get_node_or_null("Player") as Node2D
+	if player == null or not is_instance_valid(player):
 		return
 	var health: Node = player.get_node_or_null("Health")
+	if _wired_health != null and is_instance_valid(_wired_health) and _wired_health != health:
+		if _wired_health.has_signal("health_changed"):
+			if _wired_health.is_connected("health_changed", _on_player_health_changed):
+				_wired_health.disconnect("health_changed", _on_player_health_changed)
+		if _wired_health.has_signal("died"):
+			if _wired_health.is_connected("died", _on_player_died):
+				_wired_health.disconnect("died", _on_player_died)
 	if health == null or not is_instance_valid(health):
+		_wired_health = null
 		return
 	if health.has_signal("health_changed"):
 		if not health.is_connected("health_changed", _on_player_health_changed):
@@ -45,6 +56,7 @@ func _connect_health_signals() -> void:
 	if health.has_signal("died"):
 		if not health.is_connected("died", _on_player_died):
 			health.connect("died", _on_player_died)
+	_wired_health = health
 
 
 func _on_player_health_changed(_current: float, _maximum: float) -> void:
@@ -58,6 +70,7 @@ func _on_player_died() -> void:
 func _physics_process(delta: float) -> void:
 	if not is_inside_tree():
 		return
+	_connect_health_signals()
 	if not run_active:
 		return
 	elapsed_seconds += delta
