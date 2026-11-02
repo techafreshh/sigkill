@@ -98,6 +98,8 @@ func _shove_crowd(push: float, delta: float, enemies: Array) -> void:
 ## overlap (dist < 0.01) still counts as contact: unlike the shove there is
 ## no direction to normalize, so nothing to guard against.
 func _check_contact_damage(enemies: Array) -> void:
+	if not _is_run_active():
+		return
 	_wire_health()
 	if health == null or not is_instance_valid(health):
 		return

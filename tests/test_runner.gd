@@ -71,6 +71,7 @@ func run_all() -> void:
 		"test_chaser_does_not_pass_through_player",
 		"test_player_shoves_through_encirclement",
 		"test_player_shove_frozen_when_run_inactive",
+		"test_contact_damage_frozen_when_run_inactive",
 		"test_chaser_stops_at_contact_band",
 		"test_chaser_halts_when_run_inactive",
 		"test_end_run_comment_matches_chaser_freeze",
@@ -1601,6 +1602,100 @@ func test_player_shove_frozen_when_run_inactive() -> bool:
 	ok = assert_true((chaser.velocity as Vector2).length() > 0.0, "shove resumes after reset") and ok
 	_release_move_actions()
 	instance.queue_free()
+	return ok
+
+
+func test_contact_damage_frozen_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = player.global_position
+	chaser.set("speed", 0.0)
+	chaser.set("target", player)
+	var health: Node = player.get_node_or_null("Health")
+	ok = assert_true(health != null, "player has Health node") and ok
+	if health == null:
+		chaser.queue_free()
+		instance.queue_free()
+		return false
+	var start_hp := float(player.call("get_hp"))
+	var touched := false
+	for i in 30:
+		await physics_frame
+		if float(player.call("get_hp")) < start_hp:
+			touched = true
+			break
+	ok = assert_true(touched, "contact damage lands while run active") and ok
+	chaser.global_position = player.global_position
+	var hp_before := float(player.call("get_hp"))
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	health.set("_invuln", 0.0)
+	ok = assert_eq(float(health.get("_invuln")), 0.0, "i-frame gate neutralized before inactive probes") and ok
+	player.call("_check_contact_damage", [chaser])
+	ok = assert_eq(float(player.call("get_hp")), hp_before, "inactive direct contact tick leaves HP unchanged") and ok
+	ok = assert_eq(float(health.get("_invuln")), 0.0, "inactive direct contact tick starts no i-frames") and ok
+	var emitted: Array = [0]
+	var probe := func(_current: float, _maximum: float) -> void:
+		emitted[0] = int(emitted[0]) + 1
+	health.connect("health_changed", probe)
+	health.call("take_damage", 10.0)
+	ok = assert_eq(float(player.call("get_hp")), hp_before, "inactive direct health take_damage leaves HP unchanged") and ok
+	ok = assert_eq(int(emitted[0]), 0, "inactive direct health take_damage emits no health_changed") and ok
+	player.call("take_damage", 10.0)
+	ok = assert_eq(float(player.call("get_hp")), hp_before, "inactive player take_damage wrapper leaves HP unchanged") and ok
+	ok = assert_eq(int(emitted[0]), 0, "inactive player take_damage wrapper emits no health_changed") and ok
+	health.disconnect("health_changed", probe)
+	ok = assert_eq(float(health.get("_invuln")), 0.0, "inactive direct damage starts no i-frames") and ok
+	chaser.global_position = player.global_position
+	for i in 60:
+		await physics_frame
+	ok = assert_eq(float(player.call("get_hp")), hp_before, "inactive live ticks leave HP frozen") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	health.set("_invuln", 0.0)
+	chaser.global_position = player.global_position
+	var resume_hp := float(player.call("get_hp"))
+	player.call("_check_contact_damage", [chaser])
+	ok = assert_true(float(player.call("get_hp")) < resume_hp, "contact tick resumes after reset") and ok
+	health.set("_invuln", 0.0)
+	var second_hp := float(player.call("get_hp"))
+	health.call("take_damage", 10.0)
+	ok = assert_true(float(player.call("get_hp")) < second_hp, "take_damage resumes after reset") and ok
+	chaser.queue_free()
+	instance.queue_free()
+	var lone: Node = load("res://player/health.gd").new()
+	root.add_child(lone)
+	lone.set_physics_process(false)
+	var lone_before := float(lone.call("get_hp"))
+	lone.call("take_damage", 10.0)
+	ok = assert_true(float(lone.call("get_hp")) < lone_before, "detached Health defaults to active") and ok
+	lone.queue_free()
+	var lone_player := load("res://player.gd").new() as CharacterBody2D
+	ok = assert_true(bool(lone_player.call("_is_run_active")), "detached player defaults to active") and ok
+	lone_player.free()
+	await _clear_enemies()
 	return ok
 
 
