@@ -47,7 +47,9 @@ func run_all() -> void:
 		"test_spawner_ring_spawns_offscreen",
 		"test_spawner_enforces_cap",
 		"test_spawner_halts_when_run_inactive",
+		"test_spawner_halts_when_reparented_under_intermediate",
 		"test_player_halts_when_run_inactive",
+		"test_player_halts_when_reparented_under_intermediate",
 		"test_main_health_wiring_halts_when_run_inactive",
 		"test_main_spawner_wiring_halts_when_run_inactive",
 		"test_main_spawner_push_halts_when_run_inactive",
@@ -647,6 +649,67 @@ func test_spawner_halts_when_run_inactive() -> bool:
 	return ok
 
 
+func test_spawner_halts_when_reparented_under_intermediate() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	var middle := Node2D.new()
+	middle.name = "FactionLayer"
+	instance.add_child(middle)
+	var kept: Vector2 = (spawner as Node2D).global_position
+	instance.remove_child(spawner)
+	middle.add_child(spawner)
+	(spawner as Node2D).global_position = kept
+	await process_frame
+	spawner.set("spawn_interval", 0.05)
+	spawner.set("max_entities", 1000)
+	for i in 30:
+		await physics_frame
+	ok = assert_true(get_nodes_in_group("enemies").size() > 0, "reparented spawner produces enemies while active") and ok
+	ok = assert_true(bool(spawner.call("_is_run_active")), "reparented spawner guard sees active run") and ok
+	var victim: Node = null
+	for enemy: Node in get_nodes_in_group("enemies"):
+		if is_instance_valid(enemy) and enemy.get_parent() == spawner:
+			victim = enemy
+			break
+	ok = assert_true(victim != null, "spawner child available for kill forwarding") and ok
+	if victim != null:
+		var kills_before := int(instance.call("get_kills"))
+		victim.call("take_damage", float(victim.get("max_health")))
+		for i in 30:
+			await physics_frame
+			if not is_instance_valid(victim):
+				break
+		ok = assert_true(int(instance.call("get_kills")) >= kills_before + 1, "kill under intermediate forwards to Main") and ok
+	var alive_baseline := get_nodes_in_group("enemies").size()
+	var peak_baseline := int(spawner.get("peak_alive"))
+	var tick_baseline := int(spawner.get("_tick"))
+	spawner.set("_accum", 0.0)
+	instance.set("run_active", false)
+	ok = assert_true(not bool(spawner.call("_is_run_active")), "reparented spawner guard sees inactive run") and ok
+	for i in 60:
+		await physics_frame
+	ok = assert_eq(get_nodes_in_group("enemies").size(), alive_baseline, "inactive reparented run spawns nothing") and ok
+	ok = assert_eq(int(spawner.get("peak_alive")), peak_baseline, "peak_alive frozen while inactive") and ok
+	ok = assert_eq(float(spawner.get("_accum")), 0.0, "spawn debt frozen while inactive") and ok
+	ok = assert_eq(int(spawner.get("_tick")), tick_baseline, "tick frozen while inactive") and ok
+	spawner.call("_try_spawn")
+	ok = assert_eq(get_nodes_in_group("enemies").size(), alive_baseline, "direct _try_spawn spawns nothing while inactive") and ok
+	ok = assert_eq(int(spawner.get("peak_alive")), peak_baseline, "direct _try_spawn leaves peak while inactive") and ok
+	instance.queue_free()
+	await _clear_enemies()
+	return ok
+
+
 func test_player_halts_when_run_inactive() -> bool:
 	var ok := true
 	await _clear_enemies()
@@ -712,6 +775,57 @@ func test_player_halts_when_run_inactive() -> bool:
 	ok = assert_true((lone as Node2D).global_position.distance_to(lone_start) > 1.0, "detached player displaces (%.1f px)" % (lone as Node2D).global_position.distance_to(lone_start)) and ok
 	_release_move_actions()
 	lone.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_player_halts_when_reparented_under_intermediate() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as CharacterBody2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null:
+		instance.queue_free()
+		return false
+	if spawner != null:
+		spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	var middle := Node2D.new()
+	middle.name = "FactionLayer"
+	instance.add_child(middle)
+	var kept_pos: Vector2 = player.global_position
+	instance.remove_child(player)
+	middle.add_child(player)
+	player.global_position = kept_pos
+	await process_frame
+	_release_move_actions()
+	ok = assert_true(bool(player.call("_is_run_active")), "reparented player guard sees active run") and ok
+	var active_before: Vector2 = player.global_position
+	Input.action_press("move_right")
+	for i in 30:
+		await physics_frame
+	var active_disp: float = player.global_position.distance_to(active_before)
+	ok = assert_true(active_disp > 10.0, "reparented player displaces while run active (%.1f px)" % active_disp) and ok
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	ok = assert_true(not bool(player.call("_is_run_active")), "reparented player guard sees inactive run") and ok
+	player.set("velocity", Vector2(220, 0))
+	var frozen_pos: Vector2 = player.global_position
+	for i in 60:
+		await physics_frame
+	ok = assert_eq(player.global_position, frozen_pos, "inactive reparented player holds position") and ok
+	ok = assert_eq(player.velocity, Vector2.ZERO, "inactive reparented player zeroes velocity") and ok
+	player.call("_physics_process", 1.0 / 60.0)
+	ok = assert_eq(player.global_position, frozen_pos, "direct tick moves nothing while inactive") and ok
+	ok = assert_eq(player.velocity, Vector2.ZERO, "direct tick keeps zero velocity while inactive") and ok
+	_release_move_actions()
+	instance.queue_free()
 	await _clear_enemies()
 	return ok
 
