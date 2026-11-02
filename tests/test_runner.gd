@@ -1002,7 +1002,9 @@ func test_main_spawner_push_halts_when_run_inactive() -> bool:
 		if not is_instance_valid(victim):
 			break
 	ok = assert_eq(int(spawner.call("get_alive")), stale_cached, "inactive died leaves spawner counter frozen") and ok
-	ok = assert_eq(get_nodes_in_group("enemies").size(), stale_cached - 1, "inactive died frees chaser") and ok
+	ok = assert_true(is_instance_valid(victim), "inactive damage leaves chaser alive") and ok
+	ok = assert_eq(float(victim.get("health")), float(victim.get("max_health")), "inactive damage leaves health unchanged") and ok
+	ok = assert_eq(get_nodes_in_group("enemies").size(), stale_cached, "inactive damage frees no chaser") and ok
 	spawner.emit_signal("alive_changed", stale_cached + 5)
 	for i in 10:
 		await physics_frame

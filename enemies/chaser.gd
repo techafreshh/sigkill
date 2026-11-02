@@ -66,6 +66,8 @@ func get_health() -> float:
 
 
 func take_damage(amount: float) -> void:
+	if not _is_run_active():
+		return
 	if _dead or is_queued_for_deletion():
 		return
 	if amount <= 0.0:
