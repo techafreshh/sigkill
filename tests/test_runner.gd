@@ -2818,7 +2818,7 @@ func test_restore_full_health_rewires_after_swap() -> bool:
 	ok = assert_eq(conns, 1, "fresh Health carries exactly one died connection") and ok
 	var source := FileAccess.get_file_as_string("res://player.gd")
 	var body := source.substr(source.find("func restore_full_health"), 400)
-	ok = assert_true(body.contains("_refresh_health_wiring()"), "restore_full_health refreshes health wiring") and ok
+	ok = assert_true(body.contains("_wire_health()"), "restore_full_health refreshes health wiring") and ok
 	ok = assert_true(not bool(instance.call("is_game_over")), "run active before lethal hit on replacement") and ok
 	player.call("take_damage", 100.0)
 	var over := false
