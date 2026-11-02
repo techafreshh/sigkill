@@ -85,6 +85,7 @@ func run_all() -> void:
 		"test_main_hud_preserves_overshoot",
 		"test_main_hud_zero_interval_no_hang",
 		"test_main_hud_reflects_damage_immediately",
+		"test_main_health_push_frozen_when_run_inactive",
 		"test_main_hud_rewires_after_health_replace",
 		"test_main_hud_rewires_after_spawner_replace",
 		"test_main_hud_rewires_after_player_replace",
@@ -1831,6 +1832,48 @@ func test_main_hud_reflects_damage_immediately() -> bool:
 	await physics_frame
 	ok = assert_true(label.text.contains("HP=90"), "HUD shows HP=90 within 2 frames, no interval wait") and ok
 	ok = assert_true(not bool(instance.call("is_game_over")), "non-lethal hit does not end run") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_health_push_frozen_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if player == null or label == null:
+		instance.queue_free()
+		return false
+	if spawner != null:
+		spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	player.call("take_damage", 10.0)
+	ok = assert_eq(int(player.call("get_hp")), 90, "non-lethal hit reduces HP to 90") and ok
+	await process_frame
+	await physics_frame
+	ok = assert_true(label.text.contains("HP=90"), "HUD shows HP=90 within 2 frames, no interval wait") and ok
+	for i in 40:
+		await physics_frame
+	instance.call("end_run", "quit")
+	await process_frame
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	ok = assert_true(label.text.contains("GAME_OVER"), "HUD shows GAME_OVER after end_run") and ok
+	var frozen := label.text
+	instance.call("_on_player_health_changed", 90.0, 100.0)
+	player.call("take_damage", 10.0)
+	for i in 10:
+		await physics_frame
+	ok = assert_eq(label.text, frozen, "post-terminal health pushes leave HUD text frozen") and ok
+	ok = assert_true(label.text.contains("GAME_OVER"), "HUD still shows GAME_OVER after post-terminal pushes") and ok
 	instance.queue_free()
 	return ok
 

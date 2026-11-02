@@ -73,6 +73,8 @@ func _connect_health_signals() -> void:
 
 
 func _on_player_health_changed(_current: float, _maximum: float) -> void:
+	if not run_active:
+		return
 	_refresh_hud()
 
 
