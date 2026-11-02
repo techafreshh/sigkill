@@ -6,7 +6,8 @@ extends Node2D
 const ProjectileScript := preload("res://weapons/projectile.gd")
 
 @export var cooldown := 0.8
-@export var range := 700.0
+# Covers the spawner off-screen ring (viewport half-diagonal + spawn_margin_max ≈ 884px at 1280x720) so fresh spawns are engageable on spawn.
+@export var range := 950.0
 @export var projectile_speed := 700.0
 @export var damage := 1
 

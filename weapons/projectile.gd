@@ -5,7 +5,8 @@ extends Area2D
 
 @export var speed := 700.0
 @export var damage := 1
-@export var max_range := 700.0
+# Mirrors the Bolt default; overwritten per-shot by launch(p_range).
+@export var max_range := 950.0
 
 var direction := Vector2.RIGHT
 
