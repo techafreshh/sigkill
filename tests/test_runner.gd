@@ -50,6 +50,7 @@ func run_all() -> void:
 		"test_spawner_preserves_overshoot",
 		"test_spawner_peak_tracks_and_resets",
 		"test_spawner_peak_single_source_updates_same_frame",
+		"test_spawner_single_group_scan_per_tick",
 		"test_spawner_zero_interval_no_hang",
 		"test_spawner_without_player_spawns_nothing",
 		"test_spawner_quiet_by_default",
@@ -706,6 +707,60 @@ func test_spawner_peak_single_source_updates_same_frame() -> bool:
 	ok = assert_eq(source.count("> peak_alive"), 1, "exactly one peak comparison site") and ok
 	ok = assert_true(source.contains("SPAWNER_STATUS"), "spawner retains SPAWNER_STATUS string") and ok
 	ok = assert_true(source.contains("SPAWNER_SPAWN"), "spawner retains SPAWNER_SPAWN string") and ok
+	spawner.queue_free()
+	dummy.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_spawner_single_group_scan_per_tick() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var source := FileAccess.get_file_as_string("res://spawner.gd")
+	ok = assert_eq(source.count("get_tree().get_nodes_in_group"), 1, "exactly one group-query site per tick") and ok
+	ok = assert_true(source.contains("func _count_alive"), "single group-query helper exists") and ok
+	ok = assert_true(source.contains("SPAWNER_STATUS"), "spawner retains SPAWNER_STATUS string") and ok
+	ok = assert_true(source.contains("SPAWNER_SPAWN"), "spawner retains SPAWNER_SPAWN string") and ok
+	var spawner: Node = load("res://spawner.gd").new()
+	root.add_child(spawner)
+	spawner.set_physics_process(false)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("batch_size", 5)
+	spawner.set("max_entities", 1000)
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	spawner.set("player", dummy)
+	await process_frame
+	spawner.call("_physics_process", 0.6)
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 5, "one tick multi-batch drain spawns full batch") and ok
+	ok = assert_eq(int(spawner.call("get_peak_alive")), 5, "batch peak tracked same frame without extra tick") and ok
+	await _clear_enemies()
+	spawner.call("reset_peak")
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("batch_size", 3)
+	spawner.set("max_entities", 4)
+	spawner.set("_accum", 0.0)
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		spawner.queue_free()
+		dummy.queue_free()
+		await _clear_enemies()
+		return false
+	var seed_enemy := packed.instantiate()
+	root.add_child(seed_enemy)
+	await process_frame
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 1, "cap fixture stages one live enemy") and ok
+	spawner.call("_physics_process", 1.1)
+	var capped := get_nodes_in_group("enemies").size()
+	ok = assert_true(capped <= 4, "threaded cap holds across batches in one tick (alive=%d)" % capped) and ok
+	ok = assert_eq(capped, 4, "debt drain fills exactly to cap without overshoot") and ok
+	await _clear_enemies()
+	spawner.set("max_entities", 1000)
+	spawner.set("batch_size", 1)
+	spawner.set("_accum", 0.0)
+	spawner.call("_try_spawn")
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 1, "zero-arg _try_spawn still spawns") and ok
 	spawner.queue_free()
 	dummy.queue_free()
 	await _clear_enemies()

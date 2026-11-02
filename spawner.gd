@@ -30,8 +30,11 @@ func reset_peak() -> void:
 	peak_alive = 0
 
 
-func _update_peak() -> void:
-	var alive := get_tree().get_nodes_in_group("enemies").size()
+func _count_alive() -> int:
+	return get_tree().get_nodes_in_group("enemies").size()
+
+
+func _update_peak(alive: int) -> void:
 	if alive > peak_alive:
 		peak_alive = alive
 
@@ -55,14 +58,14 @@ func _physics_process(delta: float) -> void:
 	if not _is_run_active():
 		return
 	_tick += 1
-	_update_peak()
+	var alive := _count_alive()
+	_update_peak(alive)
 	_accum += delta
 	while spawn_interval > 0.0 and _accum >= spawn_interval:
 		_accum -= spawn_interval
-		_try_spawn()
+		alive = _try_spawn(alive)
 	if _tick % STATUS_EVERY_TICKS == 0 and verbose:
-		var current := get_tree().get_nodes_in_group("enemies").size()
-		print("SPAWNER_STATUS get_nodes_in_group(\"enemies\").size()=%d MAX_ALIVE=%d" % [current, peak_alive])
+		print("SPAWNER_STATUS get_nodes_in_group(\"enemies\").size()=%d MAX_ALIVE=%d" % [alive, peak_alive])
 
 
 ## Kill accounting: a spawner-produced chaser that emits died was lethally
@@ -107,29 +110,34 @@ func _spawn_center() -> Vector2:
 	return global_position
 
 
-func _try_spawn() -> void:
+func _try_spawn(known_alive: int = -1) -> int:
 	if not _is_run_active():
-		return
-	var alive := get_tree().get_nodes_in_group("enemies").size()
+		if known_alive >= 0:
+			return known_alive
+		return _count_alive()
+	var alive := known_alive
+	if alive < 0:
+		alive = _count_alive()
 	if alive >= max_entities:
-		return
+		return alive
 	var room: int = mini(batch_size, max_entities - alive)
 	if room <= 0:
-		return
+		return alive
 	if not is_instance_valid(player):
 		_resolve_player()
 	if not is_instance_valid(player):
 		push_error("spawner: no valid player; skipping spawn")
-		return
+		return alive
 	var center := _spawn_center()
 	var radius := _min_view_radius()
+	var spawned := 0
 	for i in room:
 		var scene: PackedScene = chaser_scene if chaser_scene != null else CHASER_SCENE
 		if scene == null:
-			return
+			return alive + spawned
 		var chaser := scene.instantiate() as Node2D
 		if chaser == null:
-			return
+			return alive + spawned
 		var angle := randf() * TAU
 		var dist := radius + randf_range(spawn_margin_min, spawn_margin_max)
 		add_child(chaser)
@@ -139,7 +147,10 @@ func _try_spawn() -> void:
 		if chaser.has_signal("died"):
 			if not chaser.is_connected("died", _on_enemy_died.bind(chaser)):
 				chaser.connect("died", _on_enemy_died.bind(chaser))
+		spawned += 1
 		if verbose:
-			var now_alive := get_tree().get_nodes_in_group("enemies").size()
+			var now_alive := alive + spawned
 			print("SPAWNER_SPAWN SPAWN_DIST=%.2f MIN_VIEW_RADIUS=%.2f ALIVE=%d" % [dist, radius, now_alive])
-	_update_peak()
+	alive += spawned
+	_update_peak(alive)
+	return alive
