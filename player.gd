@@ -45,13 +45,15 @@ func _notification(what: int) -> void:
 
 
 func _is_run_active() -> bool:
-	var coordinator := get_parent()
-	if coordinator == null or not is_instance_valid(coordinator):
+	if not is_inside_tree():
 		return true
-	if coordinator.has_method("is_run_active"):
-		return bool(coordinator.call("is_run_active"))
-	if "run_active" in coordinator:
-		return bool(coordinator.get("run_active"))
+	var node := get_parent()
+	while node != null and is_instance_valid(node):
+		if node.has_method("is_run_active"):
+			return bool(node.call("is_run_active"))
+		if "run_active" in node:
+			return bool(node.get("run_active"))
+		node = node.get_parent()
 	return true
 
 

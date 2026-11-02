@@ -47,13 +47,15 @@ func _update_peak(alive: int) -> void:
 
 
 func _is_run_active() -> bool:
-	var coordinator := get_parent()
-	if coordinator == null or not is_instance_valid(coordinator):
+	if not is_inside_tree():
 		return true
-	if coordinator.has_method("is_run_active"):
-		return bool(coordinator.call("is_run_active"))
-	if "run_active" in coordinator:
-		return bool(coordinator.get("run_active"))
+	var node := get_parent()
+	while node != null and is_instance_valid(node):
+		if node.has_method("is_run_active"):
+			return bool(node.call("is_run_active"))
+		if "run_active" in node:
+			return bool(node.get("run_active"))
+		node = node.get_parent()
 	return true
 
 
@@ -91,7 +93,13 @@ func _on_enemy_died(enemy: Node) -> void:
 	var pos := Vector2.ZERO
 	if enemy != null and is_instance_valid(enemy) and enemy is Node2D:
 		pos = (enemy as Node2D).global_position
-	var coordinator := get_parent()
+	var coordinator: Node = null
+	var lookup := get_parent()
+	while lookup != null and is_instance_valid(lookup):
+		if lookup.has_method("get_kills") or lookup.has_method("register_kill") or lookup.has_method("is_run_active") or "run_active" in lookup:
+			coordinator = lookup
+			break
+		lookup = lookup.get_parent()
 	var kills := 1
 	if coordinator != null and is_instance_valid(coordinator):
 		if coordinator.has_method("get_kills"):
