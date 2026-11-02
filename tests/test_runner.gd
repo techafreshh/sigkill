@@ -6,6 +6,7 @@ extends SceneTree
 const MOVE_ACTIONS: Array[String] = ["move_up", "move_down", "move_left", "move_right"]
 const AutopilotScript := preload("res://autopilot/autopilot.gd")
 const SpawnerScript := preload("res://spawner.gd")
+const VerdictBot := preload("res://autopilot/bot.gd")
 
 var passed := 0
 var failed := 0
@@ -115,6 +116,11 @@ func run_all() -> void:
 		"test_sanity_math",
 		"test_nominal_seconds_math",
 		"test_measured_clock_accumulates",
+		"test_verdict_bot_schedule_cycles",
+		"test_verdict_bot_nominal_math",
+		"test_verdict_bot_check_predicates",
+		"test_verdict_bot_format_tokens",
+		"test_verdict_bot_flee_override",
 		"test_bolt_child_of_player_with_timer",
 		"test_bolt_range_covers_spawn_ring",
 		"test_bolt_fires_at_nearest_in_range",
@@ -3444,6 +3450,78 @@ func test_measured_clock_accumulates() -> bool:
 	ok = assert_true(measured > 0.0, "probe measured delta sum is positive") and ok
 	ok = assert_true(measured > expected * 0.5, "probe measured above generous lower bound") and ok
 	ok = assert_true(measured < expected * 2.0 + 0.05, "probe measured below generous upper bound") and ok
+	return ok
+
+
+func test_verdict_bot_schedule_cycles() -> bool:
+	var ok := true
+	ok = assert_eq(VerdictBot.direction_for_index(0), "move_up", "rotation 0 wanders up") and ok
+	ok = assert_eq(VerdictBot.direction_for_index(1), "move_right", "rotation 1 wanders right") and ok
+	ok = assert_eq(VerdictBot.direction_for_index(2), "move_down", "rotation 2 wanders down") and ok
+	ok = assert_eq(VerdictBot.direction_for_index(3), "move_left", "rotation 3 wanders left") and ok
+	ok = assert_eq(VerdictBot.direction_for_index(4), "move_up", "rotation 4 wraps to up") and ok
+	ok = assert_eq(VerdictBot.TOTAL_FRAMES / VerdictBot.ROTATE_EVERY, 180, "10800 frames hold 180 rotations") and ok
+	ok = assert_eq(VerdictBot.TOTAL_FRAMES, 10800, "3-minute frame budget") and ok
+	return ok
+
+
+func test_verdict_bot_nominal_math() -> bool:
+	var ok := true
+	ok = assert_eq(VerdictBot.nominal_seconds(10800, 60.0), 180.0, "nominal 10800 frames at 60 fps is 180 seconds") and ok
+	ok = assert_eq(VerdictBot.nominal_seconds(0, 60.0), 0.0, "nominal 0 frames is 0 seconds") and ok
+	ok = assert_true(VerdictBot.nominal_seconds(10800, 60.0) >= VerdictBot.SIM_MIN, "full run clears SIM_MIN") and ok
+	return ok
+
+
+func test_verdict_bot_check_predicates() -> bool:
+	var ok := true
+	var golden := VerdictBot.check(180.0, 0, 25, 120, 300, 80, "alive")
+	ok = assert_true(bool(golden["ok"]), "golden stat set passes check") and ok
+	ok = assert_eq(int(golden["error_count"]), 0, "golden stat set has zero failures") and ok
+	var death_golden := VerdictBot.check(180.0, 0, 25, 120, 300, 0, "death")
+	ok = assert_true(bool(death_golden["ok"]), "death run-end passes check") and ok
+	var cases: Array = [
+		[VerdictBot.check(100.0, 0, 25, 120, 300, 80, "alive"), "sim low"],
+		[VerdictBot.check(180.0, 1, 25, 120, 300, 80, "alive"), "script errors"],
+		[VerdictBot.check(180.0, 0, 5, 120, 300, 80, "alive"), "kills low"],
+		[VerdictBot.check(180.0, 0, 25, 301, 300, 80, "alive"), "cap exceeded"],
+		[VerdictBot.check(180.0, 0, 25, 120, 300, 101, "alive"), "hp over max"],
+		[VerdictBot.check(180.0, 0, 25, 120, 300, 80, "quit"), "bad run_end"],
+	]
+	for entry: Array in cases:
+		var res: Dictionary = entry[0]
+		var label: String = entry[1]
+		ok = assert_true(not bool(res["ok"]), "check fails when " + label) and ok
+		ok = assert_eq(int(res["error_count"]), 1, "single fault counts exactly one failure (" + label + ")") and ok
+	ok = assert_true(not bool(VerdictBot.check(100.0, 0, 5, 301, 300, 101, "quit")["run_end_ok"]), "bad run_end clears run_end_ok") and ok
+	ok = assert_true(bool(VerdictBot.check(180.0, 0, 25, 120, 300, 80, "death")["run_end_ok"]), "death keeps run_end_ok") and ok
+	return ok
+
+
+func test_verdict_bot_format_tokens() -> bool:
+	var ok := true
+	var line := VerdictBot.format_verdict(180.0, 0, 25, 120, 80, "alive", true)
+	ok = assert_true(line.begins_with("AUTOPLAY_VERDICT_3MIN "), "verdict line carries 3-min prefix") and ok
+	ok = assert_true(line.contains("SIM_SECONDS=180.00"), "verdict formats sim seconds") and ok
+	ok = assert_true(line.contains("ERRORS=0"), "verdict carries ERRORS token") and ok
+	ok = assert_true(line.contains("KILLS=25"), "verdict carries KILLS token") and ok
+	ok = assert_true(line.contains("MAX_ALIVE=120"), "verdict carries MAX_ALIVE token") and ok
+	ok = assert_true(line.contains("PLAYER_HP=80"), "verdict carries PLAYER_HP token") and ok
+	ok = assert_true(line.contains("RUN_END=alive"), "verdict carries RUN_END token") and ok
+	ok = assert_true(line.contains("RESULT=PASS"), "passing verdict ends RESULT=PASS") and ok
+	var fail_line := VerdictBot.format_verdict(100.0, 3, 5, 301, 101, "quit", false)
+	ok = assert_true(fail_line.contains("RESULT=FAIL"), "failing verdict ends RESULT=FAIL") and ok
+	return ok
+
+
+func test_verdict_bot_flee_override() -> bool:
+	var ok := true
+	var origin := Vector2(640, 360)
+	ok = assert_eq(VerdictBot.flee_override(origin, []), "", "no enemies means no flee") and ok
+	ok = assert_eq(VerdictBot.flee_override(origin, [origin + Vector2(500, 0)]), "", "distant enemy means no flee") and ok
+	ok = assert_eq(VerdictBot.flee_override(origin, [origin + Vector2(50, 0)]), "move_left", "enemy right flees left") and ok
+	ok = assert_eq(VerdictBot.flee_override(origin, [origin + Vector2(0, -50)]), "move_down", "enemy above flees down") and ok
+	ok = assert_eq(VerdictBot.flee_override(origin, [origin + Vector2(-50, 0), origin + Vector2(10, 0)]), "move_left", "nearest enemy wins") and ok
 	return ok
 
 
