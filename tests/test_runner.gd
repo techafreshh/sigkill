@@ -75,6 +75,7 @@ func run_all() -> void:
 		"test_main_reset_clears_peak",
 		"test_main_hud_updates",
 		"test_main_hud_preserves_overshoot",
+		"test_main_hud_zero_interval_no_hang",
 		"test_main_hud_reflects_damage_immediately",
 		"test_main_hud_shows_game_over_immediately",
 		"test_sanity_math",
@@ -1334,9 +1335,27 @@ func test_main_hud_preserves_overshoot() -> bool:
 	ok = assert_true(absf(resid - 0.05) < 0.01, "hud overshoot carried (accum=%.4f)" % resid) and ok
 	ok = assert_true(absf(float(instance.call("get_elapsed")) - 0.30) < 0.01, "hud frame advances clock") and ok
 	instance.set("_hud_accum", 0.0)
+	instance.set("elapsed_seconds", 0.0)
 	instance.call("_physics_process", 0.60)
 	var resid2 := float(instance.get("_hud_accum"))
-	ok = assert_true(absf(resid2 - 0.35) < 0.01, "hud single subtract keeps one interval (accum=%.4f)" % resid2) and ok
+	ok = assert_true(absf(resid2 - 0.10) < 0.01, "hud long frame drains two intervals (accum=%.4f)" % resid2) and ok
+	ok = assert_true(absf(float(instance.call("get_elapsed")) - 0.60) < 0.01, "hud long frame advances clock") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_hud_zero_interval_no_hang() -> bool:
+	var ok := true
+	var instance: Node = load("res://main.gd").new()
+	root.add_child(instance)
+	instance.set_physics_process(false)
+	instance.set("hud_refresh_interval", 0.0)
+	instance.set("_hud_accum", 0.0)
+	instance.set("elapsed_seconds", 0.0)
+	await process_frame
+	instance.call("_physics_process", 1.0)
+	ok = assert_true(absf(float(instance.call("get_elapsed")) - 1.0) < 0.01, "zero-interval hud frame still advances clock") and ok
+	ok = assert_true(absf(float(instance.get("_hud_accum")) - 1.0) < 0.01, "zero-interval hud accumulates without draining (accum=%.4f)" % float(instance.get("_hud_accum"))) and ok
 	instance.queue_free()
 	return ok
 
