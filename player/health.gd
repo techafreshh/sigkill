@@ -24,7 +24,22 @@ func _ready() -> void:
 	hp = max_hp
 
 
+func _is_run_active() -> bool:
+	if not is_inside_tree():
+		return true
+	var node := get_parent()
+	while node != null and is_instance_valid(node):
+		if node.has_method("is_run_active"):
+			return bool(node.call("is_run_active"))
+		if "run_active" in node:
+			return bool(node.get("run_active"))
+		node = node.get_parent()
+	return true
+
+
 func _physics_process(delta: float) -> void:
+	if not _is_run_active():
+		return
 	if _invuln > 0.0:
 		_invuln = maxf(_invuln - delta, 0.0)
 
