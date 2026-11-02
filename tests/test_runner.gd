@@ -95,6 +95,8 @@ func run_all() -> void:
 		"test_restart_run_restores_full_run",
 		"test_player_health_full_before_tree_entry",
 		"test_chaser_health_full_before_tree_entry",
+		"test_player_proxy_hp_fallback_detached",
+		"test_player_proxy_hp_full_before_tree_entry",
 	]
 	await _teardown_test_fixtures()
 	for t: String in tests:
@@ -2107,4 +2109,54 @@ func test_chaser_health_full_before_tree_entry() -> bool:
 	ok = assert_eq(float(spawned.call("get_health")), float(spawned.get("max_health")), "spawned pre-tree HP reads full") and ok
 	ok = assert_true(not bool(spawned.call("is_dead")), "spawned pre-tree chaser is not dead") and ok
 	spawned.queue_free()
+	return ok
+
+
+func test_player_proxy_hp_fallback_detached() -> bool:
+	var ok := true
+	var player = load("res://player.gd").new()
+	ok = assert_true(player != null, "player script instantiates") and ok
+	if player == null:
+		return false
+	ok = assert_true(not player.is_inside_tree(), "fresh player reads pre-tree") and ok
+	ok = assert_eq(float(player.get("max_hp")), 100.0, "detached player max_hp defaults to full") and ok
+	ok = assert_eq(float(player.call("get_hp")), 100.0, "detached proxy reads full, not dead-at-zero") and ok
+	player.free()
+	var orphan = load("res://player.gd").new()
+	var stray := Node.new()
+	stray.name = "Health"
+	orphan.add_child(stray)
+	orphan.set("health", stray)
+	stray.free()
+	ok = assert_true(not is_instance_valid(stray), "stray Health freed for invalid branch") and ok
+	ok = assert_eq(float(orphan.call("get_hp")), 100.0, "freed-Health proxy still reads full") and ok
+	orphan.free()
+	var methodless = load("res://player.gd").new()
+	var bare := Node.new()
+	bare.name = "Health"
+	methodless.add_child(bare)
+	methodless.set("health", bare)
+	ok = assert_eq(float(methodless.call("get_hp")), 100.0, "method-less Health proxy still reads full") and ok
+	methodless.free()
+	return ok
+
+
+func test_player_proxy_hp_full_before_tree_entry() -> bool:
+	var ok := true
+	var packed := load("res://main.tscn") as PackedScene
+	ok = assert_true(packed != null, "main scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var instance := packed.instantiate()
+	ok = assert_true(not instance.is_inside_tree(), "instantiated main reads pre-tree") and ok
+	var player := instance.get_node_or_null("Player")
+	ok = assert_true(player != null, "main scene mounts Player") and ok
+	var mounted := instance.get_node_or_null("Player/Health")
+	ok = assert_true(mounted != null, "main scene mounts Health under Player") and ok
+	if player == null or mounted == null:
+		instance.queue_free()
+		return false
+	ok = assert_eq(float(player.call("get_hp")), float(mounted.get("max_hp")), "mounted pre-tree proxy reads full") and ok
+	ok = assert_true(float(player.call("get_hp")) > 0.0, "mounted pre-tree proxy is not dead-at-zero") and ok
+	instance.queue_free()
 	return ok
