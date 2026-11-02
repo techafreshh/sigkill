@@ -148,6 +148,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _refresh_hud() -> void:
+	_connect_health_signals()
 	if status_label == null or not is_instance_valid(status_label):
 		return
 	var alive := 0
