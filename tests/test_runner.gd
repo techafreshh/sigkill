@@ -54,6 +54,7 @@ func run_all() -> void:
 		"test_spawner_without_player_spawns_nothing",
 		"test_spawner_quiet_by_default",
 		"test_spawner_verbose_reemits_diagnostics",
+		"test_spawner_died_rewire_is_idempotent",
 		"test_chaser_steers_toward_player",
 		"test_chaser_has_accel_tuning",
 		"test_chaser_velocity_ramps",
@@ -1949,6 +1950,58 @@ func test_enemy_died_wires_kill_and_xp_log() -> bool:
 	var source := FileAccess.get_file_as_string("res://spawner.gd")
 	ok = assert_true(source.contains("XP_PLACEHOLDER"), "spawner logs XP_PLACEHOLDER on kill") and ok
 	ok = assert_true(source.contains("ENEMY_POOF"), "spawner logs ENEMY_POOF on kill") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_spawner_died_rewire_is_idempotent() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	var rewired: Node = null
+	for i in 60:
+		await physics_frame
+		var live := get_nodes_in_group("enemies")
+		if live.size() > 0 and is_instance_valid(live[0]):
+			rewired = live[0]
+			break
+	ok = assert_true(rewired != null, "spawner produced a chaser") and ok
+	if rewired == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	var expected := Callable(spawner, "_on_enemy_died").bind(rewired)
+	if rewired.has_signal("died"):
+		if not rewired.is_connected("died", expected):
+			rewired.connect("died", expected)
+	var spawner_conns := 0
+	for entry: Dictionary in rewired.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == expected:
+			spawner_conns += 1
+	ok = assert_eq(spawner_conns, 1, "re-wiring same chaser keeps exactly one spawner connection") and ok
+	var baseline := int(instance.call("get_kills"))
+	rewired.call("take_damage", float(rewired.get("max_health")))
+	var raised := false
+	for i in 30:
+		await physics_frame
+		if int(instance.call("get_kills")) == baseline + 1:
+			raised = true
+			break
+	ok = assert_true(raised, "lethal damage after re-wire raises kills by 1") and ok
+	ok = assert_eq(int(instance.call("get_kills")), baseline + 1, "kill increment is exactly 1, no double count") and ok
+	var source := FileAccess.get_file_as_string("res://spawner.gd")
+	ok = assert_true(source.contains("has_signal(\"died\")"), "spawner retains has_signal died guard") and ok
+	ok = assert_true(source.contains("is_connected"), "spawner guards died re-wire with is_connected") and ok
 	instance.queue_free()
 	return ok
 
