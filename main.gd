@@ -133,15 +133,32 @@ func is_game_over() -> bool:
 	return game_over
 
 
+## Allowlist run-reason sanitizer: keep [A-Za-z0-9_-], map all else to _.
+func _sanitize_run_reason(reason: String) -> String:
+	if reason.is_empty():
+		return "unknown"
+	var out := ""
+	for i in reason.length():
+		var code := reason.unicode_at(i)
+		if (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or (code >= 48 and code <= 57) or code == 95 or code == 45:
+			out += reason.substr(i, 1)
+		else:
+			out += "_"
+	if out.is_empty():
+		return "unknown"
+	return out
+
+
 ## Terminal run end: freeze the sim clock, spawner, and HUD (player and enemy
 ## motion keep running headless-harmlessly) and publish the greppable token.
 func end_run(reason: String = "death") -> void:
+	var safe := _sanitize_run_reason(reason)
 	run_active = false
 	game_over = true
-	if reason == "death":
+	if safe == "death":
 		print("RUN_END=death game_over=true ERRORS=0 elapsed=%.2f kills=%d" % [elapsed_seconds, kill_count])
 	else:
-		print("RUN_END=%s game_over=true ERRORS=0 elapsed=%.2f kills=%d" % [reason, elapsed_seconds, kill_count])
+		print("RUN_END=%s game_over=true ERRORS=0 elapsed=%.2f kills=%d" % [safe, elapsed_seconds, kill_count])
 	_refresh_hud()
 
 

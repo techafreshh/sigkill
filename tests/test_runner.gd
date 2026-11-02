@@ -107,6 +107,7 @@ func run_all() -> void:
 		"test_enemy_died_wires_kill_and_xp_log",
 		"test_enemy_lethal_damage_frees_within_half_second",
 		"test_lethal_contact_ends_run_with_run_end_log",
+		"test_end_run_sanitizes_reason_to_single_token",
 		"test_player_died_rewire_after_health_replace",
 		"test_player_health_rewire_on_replace",
 		"test_player_rewire_same_node_is_noop",
@@ -3415,5 +3416,50 @@ func test_player_proxy_hp_full_before_tree_entry() -> bool:
 		return false
 	ok = assert_eq(float(player.call("get_hp")), float(mounted.get("max_hp")), "mounted pre-tree proxy reads full") and ok
 	ok = assert_true(float(player.call("get_hp")) > 0.0, "mounted pre-tree proxy is not dead-at-zero") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_end_run_sanitizes_reason_to_single_token() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	ok = assert_eq(str(instance.call("_sanitize_run_reason", "game over")), "game_over", "space maps to underscore") and ok
+	ok = assert_eq(str(instance.call("_sanitize_run_reason", "a=b")), "a_b", "equals maps to underscore") and ok
+	var messy := str(instance.call("_sanitize_run_reason", "x\ny=z\tw game_over=false"))
+	ok = assert_true(not messy.contains(" ") and not messy.contains("=") and not messy.contains("\n") and not messy.contains("\t"), "newline/tab reason collapses to single grep-safe token") and ok
+	ok = assert_eq(str(instance.call("_sanitize_run_reason", "")), "unknown", "empty reason maps to unknown") and ok
+	instance.call("end_run", "game over")
+	await process_frame
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after multi-token end_run") and ok
+	ok = assert_true(bool(instance.call("is_game_over")), "is_game_over true after multi-token end_run") and ok
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER after multi-token end_run") and ok
+	var source := FileAccess.get_file_as_string("res://main.gd")
+	var end_idx := source.find("func end_run")
+	ok = assert_true(end_idx >= 0, "main.gd defines end_run") and ok
+	var end_block := ""
+	if end_idx >= 0:
+		var end_next := source.find("\nfunc ", end_idx + 1)
+		if end_next < 0:
+			end_block = source.substr(end_idx)
+		else:
+			end_block = source.substr(end_idx, end_next - end_idx)
+	ok = assert_true(end_block.contains("_sanitize_run_reason"), "end_run sanitizes reason first") and ok
+	ok = assert_true(end_block.contains("RUN_END=%s game_over=true ERRORS=0"), "sanitized branch keeps uniform token tail") and ok
+	ok = assert_true(not end_block.contains('RUN_END=%s" % reason'), "end_run no longer interpolates raw reason") and ok
+	ok = assert_true(not end_block.contains("[reason"), "end_run print interpolates safe token, never raw reason") and ok
 	instance.queue_free()
 	return ok
