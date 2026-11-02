@@ -125,6 +125,7 @@ func run_all() -> void:
 		"test_enemy_lethal_damage_frees_within_half_second",
 		"test_lethal_contact_ends_run_with_run_end_log",
 		"test_end_run_sanitizes_reason_to_single_token",
+		"test_end_run_comment_lists_enemy_freeze",
 		"test_end_run_hud_copy_varies_by_reason",
 		"test_player_died_rewire_after_health_replace",
 		"test_player_health_rewire_on_replace",
@@ -3877,6 +3878,39 @@ func test_end_run_non_death_logs_uniform_tokens() -> bool:
 	ok = assert_true(end_block.contains("RUN_END=%s game_over=true ERRORS=0"), "non-death log carries uniform token tail") and ok
 	ok = assert_true(source.contains("RUN_END=death"), "coordinator retains RUN_END=death literal") and ok
 	instance.queue_free()
+	return ok
+
+
+func test_end_run_comment_lists_enemy_freeze() -> bool:
+	var ok := true
+	var main_source := FileAccess.get_file_as_string("res://main.gd")
+	var doc_idx := main_source.find("## Terminal run end:")
+	ok = assert_true(doc_idx >= 0, "end_run doc block present") and ok
+	var doc_block := ""
+	if doc_idx >= 0:
+		var func_idx := main_source.find("func end_run", doc_idx)
+		if func_idx < 0:
+			doc_block = main_source.substr(doc_idx)
+		else:
+			doc_block = main_source.substr(doc_idx, func_idx - doc_idx)
+	ok = assert_true(doc_block.contains("freeze"), "end_run doc names the freeze") and ok
+	ok = assert_true(doc_block.contains("enemy motion"), "end_run doc inventories enemy motion freeze") and ok
+	ok = assert_true(not doc_block.contains("keeps running"), "end_run doc holds no keeps-running claim") and ok
+	ok = assert_true(not doc_block.contains("headless-harmlessly"), "end_run doc holds no headless claim") and ok
+	ok = assert_true(not main_source.contains("keeps running"), "stale keeps-running claim is gone") and ok
+	ok = assert_true(not main_source.contains("headless-harmlessly"), "stale headless claim is gone") and ok
+	var chaser_source := FileAccess.get_file_as_string("res://enemies/chaser.gd")
+	ok = assert_true(chaser_source.contains("func _is_run_active"), "chaser keeps run guard") and ok
+	var phys_idx := chaser_source.find("func _physics_process")
+	ok = assert_true(phys_idx >= 0, "chaser defines _physics_process") and ok
+	var phys_block := ""
+	if phys_idx >= 0:
+		var next_func := chaser_source.find("\nfunc ", phys_idx + 1)
+		if next_func < 0:
+			phys_block = chaser_source.substr(phys_idx)
+		else:
+			phys_block = chaser_source.substr(phys_idx, next_func - phys_idx)
+	ok = assert_true(phys_block.contains("if not _is_run_active():"), "chaser freeze guard lives in _physics_process") and ok
 	return ok
 
 

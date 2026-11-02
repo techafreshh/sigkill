@@ -170,7 +170,7 @@ func _sanitize_run_reason(reason: String) -> String:
 
 
 ## Terminal run end: freeze the sim clock, spawner, HUD, player motion,
-## player invuln timer, enemy (chaser) motion, and in-flight projectiles,
+## player invuln timer, enemy motion (chaser), and in-flight projectiles,
 ## and publish the greppable token.
 func end_run(reason: String = "death") -> void:
 	if game_over:
