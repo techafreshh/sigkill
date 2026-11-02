@@ -5,6 +5,7 @@ extends SceneTree
 
 const MOVE_ACTIONS: Array[String] = ["move_up", "move_down", "move_left", "move_right"]
 const AutopilotScript := preload("res://autopilot/autopilot.gd")
+const SpawnerScript := preload("res://spawner.gd")
 
 var passed := 0
 var failed := 0
@@ -80,6 +81,7 @@ func run_all() -> void:
 		"test_nominal_seconds_math",
 		"test_measured_clock_accumulates",
 		"test_bolt_child_of_player_with_timer",
+		"test_bolt_range_covers_spawn_ring",
 		"test_bolt_fires_at_nearest_in_range",
 		"test_projectile_frees_on_first_hit",
 		"test_bolt_ticks_quiet_without_enemies",
@@ -1466,6 +1468,69 @@ func test_bolt_child_of_player_with_timer() -> bool:
 		ok = assert_true(absf(float((cooldown as Timer).wait_time) - float(bolt.get("cooldown"))) < 0.01, "timer wait_time syncs to cooldown export") and ok
 	var source := FileAccess.get_file_as_string("res://weapons/bolt.gd")
 	ok = assert_true(source.contains("projectiles_spawned="), "bolt logs projectiles_spawned counter") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_bolt_range_covers_spawn_ring() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	var bolt := instance.get_node_or_null("Player/Bolt")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(bolt != null, "main scene has Bolt") and ok
+	if player == null or spawner == null or bolt == null:
+		instance.queue_free()
+		return false
+	var bolt_range := float(bolt.get("range"))
+	var margin_max := float(spawner.get("spawn_margin_max"))
+	ok = assert_true(bolt_range > 0.0, "bolt range export positive") and ok
+	ok = assert_true(margin_max > 0.0, "spawner spawn_margin_max positive") and ok
+	# Engagement envelope is the DESIGN viewport (project 1280x720, same as the
+	# spawner's FALLBACK_VIEWPORT_SIZE): the unit runner's root window is a
+	# square 1280x1280 artifact of headless --script mode, not the game
+	# viewport, so the live visible rect is not the meaningful spawn bound.
+	var design_size: Vector2 = SpawnerScript.FALLBACK_VIEWPORT_SIZE
+	var design_radius := 0.5 * design_size.length()
+	var ring_bound := design_radius + margin_max
+	ok = assert_true(ring_bound > design_radius, "spawn ring stays off-screen (bound=%.1f radius=%.1f)" % [ring_bound, design_radius]) and ok
+	ok = assert_true(bolt_range >= ring_bound, "bolt range covers spawn ring (range=%.1f bound=%.1f)" % [bolt_range, ring_bound]) and ok
+	var projectile = load("res://weapons/projectile.gd").new()
+	ok = assert_true(projectile != null, "projectile script instantiates") and ok
+	if projectile != null:
+		ok = assert_eq(float(projectile.get("max_range")), bolt_range, "projectile default max_range mirrors bolt range") and ok
+		projectile.free()
+	# Behavioral proof: a worst-case fresh spawn (ring bound from the player)
+	# sits outside the design viewport yet inside bolt range, so _try_fire
+	# engages it on the first snapshot with no closing distance required.
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var fresh := packed.instantiate() as Node2D
+	root.add_child(fresh)
+	fresh.global_position = player.global_position + Vector2(ring_bound, 0)
+	fresh.set("speed", 0.0)
+	fresh.set("target", player)
+	await process_frame
+	var spawn_dist: float = fresh.global_position.distance_to(player.global_position)
+	ok = assert_true(spawn_dist > design_radius, "worst-case spawn outside viewport (dist=%.1f radius=%.1f)" % [spawn_dist, design_radius]) and ok
+	ok = assert_true(spawn_dist <= bolt_range, "worst-case spawn within bolt range (dist=%.1f range=%.1f)" % [spawn_dist, bolt_range]) and ok
+	var shots_before := int(bolt.get("shots"))
+	bolt.call("_try_fire")
+	await process_frame
+	ok = assert_eq(int(bolt.get("shots")), shots_before + 1, "bolt engages worst-case fresh spawn on first snapshot") and ok
+	fresh.queue_free()
 	instance.queue_free()
 	return ok
 
