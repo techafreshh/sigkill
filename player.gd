@@ -76,6 +76,8 @@ func _physics_process(delta: float) -> void:
 ## the whole pile as a loose mass, so the player barges through instead of
 ## wedging. Gated on push, so an idle player stays a hard wall.
 func _shove_crowd(push: float, delta: float, enemies: Array) -> void:
+	if not _is_run_active():
+		return
 	if push <= 1.0:
 		return
 	var shove_vel := minf(push * shove_strength, shove_max_speed)
