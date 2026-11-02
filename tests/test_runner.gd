@@ -108,6 +108,7 @@ func run_all() -> void:
 		"test_player_rewire_same_node_is_noop",
 		"test_restart_run_restores_full_run",
 		"test_restore_full_health_rewires_after_swap",
+		"test_contact_damage_rewires_after_swap",
 		"test_player_health_full_before_tree_entry",
 		"test_chaser_health_full_before_tree_entry",
 		"test_player_proxy_hp_fallback_detached",
@@ -2896,6 +2897,81 @@ func test_restore_full_health_rewires_after_swap() -> bool:
 			break
 	ok = assert_true(over, "lethal hit on replaced Health ends the run within a second") and ok
 	ok = assert_true(bool(instance.get("game_over")), "game_over flag set after replacement death") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_contact_damage_rewires_after_swap() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	# Damage the original Health so the stale node is distinguishable from
+	# the fresh full-HP replacement after the swap.
+	player.call("take_damage", 30.0)
+	var old_health := player.get_node_or_null("Health")
+	ok = assert_true(old_health != null, "original Health present before swap") and ok
+	if old_health == null:
+		instance.queue_free()
+		return false
+	var stale_hp := float(old_health.call("get_hp"))
+	ok = assert_true(stale_hp < 100.0, "original Health damaged before swap") and ok
+	# Swap the Health child (same remove/queue_free/add idiom as
+	# test_player_health_rewire_on_replace), then poison the cached proxy
+	# to reproduce the notification-bypassing stale-cache state. NOTE: no
+	# player.call("get_hp")/player.call("take_damage") between the poison
+	# and the tick poll below — those proxies rewire and would mask the bug.
+	player.remove_child(old_health)
+	old_health.queue_free()
+	var fresh: Node = load("res://player/health.gd").new()
+	fresh.name = "Health"
+	player.add_child(fresh)
+	player.set("health", old_health)
+	var per_hit := float(player.get("contact_damage"))
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = (player as Node2D).global_position
+	chaser.set("speed", 0.0)
+	chaser.set("target", player)
+	var touched := false
+	for i in 30:
+		await physics_frame
+		if float(fresh.call("get_hp")) < float(fresh.get("max_hp")):
+			touched = true
+			break
+	ok = assert_true(touched, "contact tick damages the live Health within 30 frames") and ok
+	ok = assert_true(player.get("health") == fresh, "contact tick re-seats the health proxy on the live child") and ok
+	ok = assert_eq(float(fresh.call("get_hp")), float(fresh.get("max_hp")) - per_hit, "live Health takes exactly one summed contact tick") and ok
+	ok = assert_true(not is_instance_valid(old_health) or float(old_health.call("get_hp")) == stale_hp, "contact tick leaves the stale node untouched") and ok
+	var want := Callable(player, "_on_health_died")
+	ok = assert_true(fresh.is_connected("died", want), "contact tick wires fresh Health died") and ok
+	var conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			conns += 1
+	ok = assert_eq(conns, 1, "fresh Health carries exactly one died connection") and ok
+	var source := FileAccess.get_file_as_string("res://player.gd")
+	var body := source.substr(source.find("func _check_contact_damage"), 500)
+	ok = assert_true(body.contains("_wire_health()"), "contact tick refreshes health wiring") and ok
+	chaser.queue_free()
 	instance.queue_free()
 	return ok
 
