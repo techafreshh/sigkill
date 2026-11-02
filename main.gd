@@ -125,6 +125,8 @@ func _physics_process(delta: float) -> void:
 
 
 func register_kill() -> void:
+	if not run_active:
+		return
 	kill_count += 1
 	_refresh_hud()
 
