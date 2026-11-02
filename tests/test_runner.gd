@@ -49,6 +49,7 @@ func run_all() -> void:
 		"test_spawner_halts_when_run_inactive",
 		"test_main_health_wiring_halts_when_run_inactive",
 		"test_main_spawner_wiring_halts_when_run_inactive",
+		"test_main_spawner_push_halts_when_run_inactive",
 		"test_spawner_preserves_overshoot",
 		"test_spawner_peak_tracks_and_resets",
 		"test_spawner_peak_single_source_updates_same_frame",
@@ -746,6 +747,91 @@ func test_main_spawner_wiring_halts_when_run_inactive() -> bool:
 	ok = assert_eq(int(instance.get("_cached_alive")), int(fresh.call("get_alive")), "cache re-primed from fresh Spawner") and ok
 	if stale_spawner != null and is_instance_valid(stale_spawner):
 		stale_spawner.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_main_spawner_push_halts_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if spawner == null or label == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
+	await process_frame
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "no background spawns before batch") and ok
+	spawner.set("batch_size", 3)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("_accum", 0.0)
+	spawner.call("_physics_process", 0.6)
+	await process_frame
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 3, "known batch spawns three") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 3, "spawner cache tracks batch") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), 3, "HUD cache follows spawner push") and ok
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	var stale_cached := int(instance.get("_cached_alive"))
+	var stale_kills := int(instance.call("get_kills"))
+	var stale_label := label.text
+	var victim: Node = null
+	for enemy: Node in get_nodes_in_group("enemies"):
+		if is_instance_valid(enemy) and enemy.get_parent() == spawner:
+			victim = enemy
+			break
+	ok = assert_true(victim != null, "batch chaser available for inactive lethal damage") and ok
+	if victim == null:
+		instance.queue_free()
+		return false
+	victim.call("take_damage", float(victim.get("max_health")))
+	for i in 30:
+		await physics_frame
+		if not is_instance_valid(victim):
+			break
+	ok = assert_eq(int(spawner.call("get_alive")), stale_cached - 1, "inactive died still decrements spawner counter") and ok
+	ok = assert_eq(get_nodes_in_group("enemies").size(), stale_cached - 1, "inactive died frees chaser") and ok
+	spawner.emit_signal("alive_changed", stale_cached + 5)
+	for i in 10:
+		await physics_frame
+	ok = assert_eq(int(instance.get("_cached_alive")), stale_cached, "inactive pushes leave cache frozen") and ok
+	ok = assert_eq(int(instance.call("get_kills")), stale_kills, "inactive died leaves kills frozen") and ok
+	ok = assert_eq(label.text, stale_label, "inactive pushes leave HUD text frozen") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), int(spawner.call("get_alive")), "reset re-primes cache from spawner") and ok
+	var live: Node = null
+	for enemy: Node in get_nodes_in_group("enemies"):
+		if is_instance_valid(enemy) and enemy.get_parent() == spawner:
+			live = enemy
+			break
+	ok = assert_true(live != null, "live chaser available after reset") and ok
+	if live == null:
+		instance.queue_free()
+		return false
+	var kills_before := int(instance.call("get_kills"))
+	var cache_before := int(instance.get("_cached_alive"))
+	live.call("take_damage", float(live.get("max_health")))
+	var tracked := false
+	for i in 30:
+		await physics_frame
+		if int(instance.call("get_kills")) == kills_before + 1:
+			tracked = true
+			break
+	ok = assert_true(tracked, "live died push resumes after reset") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), cache_before - 1, "live died decrements spawner counter") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), cache_before - 1, "live died updates HUD cache") and ok
+	ok = assert_true(label.text.contains("ALIVE=%d" % (cache_before - 1)), "HUD shows live ALIVE after died") and ok
 	instance.queue_free()
 	return ok
 
