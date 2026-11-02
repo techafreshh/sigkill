@@ -53,6 +53,8 @@ func get_hp() -> float:
 
 
 func take_damage(amount: float) -> void:
+	if not _is_run_active():
+		return
 	if _dead:
 		return
 	if amount <= 0.0:
