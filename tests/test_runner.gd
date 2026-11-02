@@ -108,6 +108,7 @@ func run_all() -> void:
 		"test_enemy_lethal_damage_frees_within_half_second",
 		"test_lethal_contact_ends_run_with_run_end_log",
 		"test_end_run_sanitizes_reason_to_single_token",
+		"test_end_run_hud_copy_varies_by_reason",
 		"test_player_died_rewire_after_health_replace",
 		"test_player_health_rewire_on_replace",
 		"test_player_rewire_same_node_is_noop",
@@ -3461,5 +3462,55 @@ func test_end_run_sanitizes_reason_to_single_token() -> bool:
 	ok = assert_true(end_block.contains("RUN_END=%s game_over=true ERRORS=0"), "sanitized branch keeps uniform token tail") and ok
 	ok = assert_true(not end_block.contains('RUN_END=%s" % reason'), "end_run no longer interpolates raw reason") and ok
 	ok = assert_true(not end_block.contains("[reason"), "end_run print interpolates safe token, never raw reason") and ok
+	instance.queue_free()
+	return ok
+
+func test_end_run_hud_copy_varies_by_reason() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if label == null:
+		instance.queue_free()
+		return false
+	instance.call("end_run", "death")
+	await process_frame
+	ok = assert_true(label.text.contains("GAME_OVER death"), "death HUD shows GAME_OVER death") and ok
+	ok = assert_true(label.text.contains("press R to restart"), "death HUD keeps restart hint") and ok
+	ok = assert_eq(str(instance.call("get_run_reason")), "death", "getter returns death token") and ok
+	instance.call("reset_run")
+	await process_frame
+	ok = assert_true(not label.text.contains("GAME_OVER"), "HUD clears GAME_OVER after reset") and ok
+	ok = assert_eq(str(instance.call("get_run_reason")), "death", "reset restores death default") and ok
+	instance.call("end_run", "quit")
+	await process_frame
+	ok = assert_true(label.text.contains("GAME_OVER quit"), "quit HUD shows GAME_OVER quit") and ok
+	ok = assert_true(not label.text.contains("GAME_OVER death"), "quit HUD distinct from death copy") and ok
+	ok = assert_eq(str(instance.call("get_run_reason")), "quit", "getter returns quit token") and ok
+	instance.call("reset_run")
+	await process_frame
+	instance.call("end_run", "victory")
+	await process_frame
+	ok = assert_true(label.text.contains("GAME_OVER victory"), "victory HUD shows GAME_OVER victory") and ok
+	ok = assert_eq(str(instance.call("get_run_reason")), "victory", "getter returns victory token") and ok
+	instance.call("reset_run")
+	await process_frame
+	instance.call("end_run", "game over")
+	await process_frame
+	ok = assert_true(label.text.contains("GAME_OVER game_over"), "sanitized reason HUD shows GAME_OVER game_over") and ok
+	ok = assert_eq(str(instance.call("get_run_reason")), "game_over", "getter returns sanitized token") and ok
 	instance.queue_free()
 	return ok
