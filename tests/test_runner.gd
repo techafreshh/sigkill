@@ -79,6 +79,7 @@ func run_all() -> void:
 		"test_end_run_comment_matches_chaser_freeze",
 		"test_projectile_halts_when_run_inactive",
 		"test_end_run_comment_matches_freeze",
+		"test_end_run_comment_lists_bolt_cooldown",
 		"test_chaser_has_take_damage",
 		"test_chaser_take_damage_reduces_health",
 		"test_chaser_take_damage_kills_at_zero",
@@ -2024,6 +2025,60 @@ func test_end_run_comment_matches_freeze() -> bool:
 		else:
 			projectile_phys_block = projectile_source.substr(projectile_phys_idx, projectile_next - projectile_phys_idx)
 	ok = assert_true(projectile_phys_block.contains("if not _is_run_active():"), "projectile freeze guard lives in _physics_process") and ok
+	return ok
+
+
+func test_end_run_comment_lists_bolt_cooldown() -> bool:
+	var ok := true
+	var main_source := FileAccess.get_file_as_string("res://main.gd")
+	ok = assert_eq(main_source.count("enemy motion keeps running"), 0, "end_run doc holds no stale freeze claim") and ok
+	ok = assert_true(not main_source.contains("enemy motion keeps running"), "stale enemy-motion phrase is gone") and ok
+	var doc_idx := main_source.find("## Terminal run end:")
+	ok = assert_true(doc_idx >= 0, "end_run doc block present") and ok
+	var doc_block := ""
+	if doc_idx >= 0:
+		var func_idx := main_source.find("func end_run", doc_idx)
+		if func_idx < 0:
+			doc_block = main_source.substr(doc_idx)
+		else:
+			doc_block = main_source.substr(doc_idx, func_idx - doc_idx)
+	ok = assert_true(doc_block.contains("freeze"), "end_run doc names the freeze") and ok
+	ok = assert_true(doc_block.contains("bolt"), "end_run doc inventories bolt freeze") and ok
+	ok = assert_true(doc_block.contains("cooldown"), "end_run doc inventories bolt cooldown freeze") and ok
+	var bolt_source := FileAccess.get_file_as_string("res://weapons/bolt.gd")
+	ok = assert_true(bolt_source.contains("func _is_run_active"), "bolt keeps run guard") and ok
+	var phys_idx := bolt_source.find("func _physics_process")
+	ok = assert_true(phys_idx >= 0, "bolt defines _physics_process") and ok
+	var phys_block := ""
+	if phys_idx >= 0:
+		var phys_next := bolt_source.find("\nfunc ", phys_idx + 1)
+		if phys_next < 0:
+			phys_block = bolt_source.substr(phys_idx)
+		else:
+			phys_block = bolt_source.substr(phys_idx, phys_next - phys_idx)
+	ok = assert_true(phys_block.contains("_timer"), "bolt phase sync touches cooldown timer") and ok
+	ok = assert_true(phys_block.contains("paused"), "bolt phase sync pauses cooldown") and ok
+	ok = assert_true(phys_block.contains("not _is_run_active()"), "bolt phase sync follows run guard") and ok
+	var timeout_idx := bolt_source.find("func _on_cooldown_timeout")
+	ok = assert_true(timeout_idx >= 0, "bolt defines _on_cooldown_timeout") and ok
+	var timeout_block := ""
+	if timeout_idx >= 0:
+		var timeout_next := bolt_source.find("\nfunc ", timeout_idx + 1)
+		if timeout_next < 0:
+			timeout_block = bolt_source.substr(timeout_idx)
+		else:
+			timeout_block = bolt_source.substr(timeout_idx, timeout_next - timeout_idx)
+	ok = assert_true(timeout_block.contains("if not _is_run_active():"), "bolt timeout keeps inactive early return") and ok
+	var fire_idx := bolt_source.find("func _try_fire")
+	ok = assert_true(fire_idx >= 0, "bolt defines _try_fire") and ok
+	var fire_block := ""
+	if fire_idx >= 0:
+		var fire_next := bolt_source.find("\nfunc ", fire_idx + 1)
+		if fire_next < 0:
+			fire_block = bolt_source.substr(fire_idx)
+		else:
+			fire_block = bolt_source.substr(fire_idx, fire_next - fire_idx)
+	ok = assert_true(fire_block.contains("if not _is_run_active():"), "bolt fire keeps inactive early return") and ok
 	return ok
 
 
