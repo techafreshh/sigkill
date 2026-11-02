@@ -111,9 +111,9 @@ func _on_spawner_alive_changed(count: int) -> void:
 func _physics_process(delta: float) -> void:
 	if not is_inside_tree():
 		return
-	_connect_spawner_signals()
 	if not run_active:
 		return
+	_connect_spawner_signals()
 	_connect_health_signals()
 	elapsed_seconds += delta
 	_hud_accum += delta

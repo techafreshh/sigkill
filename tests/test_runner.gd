@@ -48,6 +48,7 @@ func run_all() -> void:
 		"test_spawner_enforces_cap",
 		"test_spawner_halts_when_run_inactive",
 		"test_main_health_wiring_halts_when_run_inactive",
+		"test_main_spawner_wiring_halts_when_run_inactive",
 		"test_spawner_preserves_overshoot",
 		"test_spawner_peak_tracks_and_resets",
 		"test_spawner_peak_single_source_updates_same_frame",
@@ -684,6 +685,64 @@ func test_main_health_wiring_halts_when_run_inactive() -> bool:
 		if died_cal == want_died:
 			died_conns += 1
 	ok = assert_eq(died_conns, 1, "fresh Health carries exactly one died connection") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_spawner_wiring_halts_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var stale_spawner: Node = spawner
+	var stale_wired: Node = instance.get("_wired_spawner")
+	ok = assert_true(stale_wired != null, "coordinator tracks a wired Spawner while active") and ok
+	var stale_cached := int(instance.get("_cached_alive"))
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	instance.remove_child(stale_spawner)
+	var fresh: Node = load("res://spawner.gd").new()
+	fresh.name = "Spawner"
+	fresh.set("player_path", NodePath("../Player"))
+	fresh.set("spawn_interval", 3600.0)
+	fresh.set("alive_count", stale_cached + 7)
+	instance.add_child(fresh)
+	var want := Callable(instance, "_on_spawner_alive_changed")
+	for i in 10:
+		await physics_frame
+	ok = assert_true(not fresh.is_connected("alive_changed", want), "inactive ticks wire no alive_changed") and ok
+	ok = assert_true(instance.get("spawner") == stale_spawner, "inactive ticks leave spawner handle unchanged") and ok
+	ok = assert_true(instance.get("_wired_spawner") == stale_wired, "inactive ticks leave wired Spawner handle unchanged") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), stale_cached, "inactive ticks leave spawner push-cache unchanged") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	var wired := false
+	for i in 10:
+		await physics_frame
+		if fresh.is_connected("alive_changed", want):
+			wired = true
+			break
+	ok = assert_true(wired, "reactivated ticks rewire fresh Spawner signal") and ok
+	var conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("alive_changed"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			conns += 1
+	ok = assert_eq(conns, 1, "fresh Spawner carries exactly one alive_changed connection") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), int(fresh.call("get_alive")), "cache re-primed from fresh Spawner") and ok
+	if stale_spawner != null and is_instance_valid(stale_spawner):
+		stale_spawner.queue_free()
 	instance.queue_free()
 	return ok
 
