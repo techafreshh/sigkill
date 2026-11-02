@@ -85,6 +85,34 @@ jobs:
           awk "BEGIN { exit !( ${wall} + 0 >= 50 ) }"
           exit $code
 
+      - name: Autoplay verdict (3-minute)
+        timeout-minutes: 10
+        run: |
+          godot --headless --path . --script res://autopilot/verdict.gd > verdict3min.log 2>&1
+          code=$?
+          cat verdict3min.log
+          if grep -q "SCRIPT ERROR" verdict3min.log; then
+            echo "verdict3min: SCRIPT ERROR found in log"
+            exit 1
+          fi
+          line=$(grep "AUTOPLAY_VERDICT_3MIN" verdict3min.log | head -n 1)
+          test -n "$line"
+          echo "$line" | grep -q "AUTOPLAY_VERDICT_3MIN.*ERRORS=0"
+          sim=$(echo "$line" | grep -o "SIM_SECONDS=[0-9.]*" | cut -d= -f2)
+          test -n "$sim"
+          awk "BEGIN { exit !( ${sim} + 0 >= 170 ) }"
+          kills=$(echo "$line" | grep -o "KILLS=[0-9]*" | cut -d= -f2)
+          test -n "$kills"
+          awk "BEGIN { exit !( ${kills} + 0 >= 20 ) }"
+          peak=$(echo "$line" | grep -o "MAX_ALIVE=[0-9]*" | cut -d= -f2)
+          test -n "$peak"
+          awk "BEGIN { exit !( ${peak} + 0 <= 300 ) }"
+          hp=$(echo "$line" | grep -o "PLAYER_HP=[0-9-]*" | cut -d= -f2)
+          test -n "$hp"
+          awk "BEGIN { exit !( ${hp} + 0 <= 100 ) }"
+          echo "$line" | grep -q "RUN_END=alive" || echo "$line" | grep -q "RUN_END=death"
+          exit $code
+
       - name: Export Web
         timeout-minutes: 10
         run: |
