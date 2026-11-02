@@ -94,6 +94,7 @@ func run_all() -> void:
 		"test_lethal_contact_ends_run_with_run_end_log",
 		"test_restart_run_restores_full_run",
 		"test_player_health_full_before_tree_entry",
+		"test_chaser_health_full_before_tree_entry",
 	]
 	await _teardown_test_fixtures()
 	for t: String in tests:
@@ -2084,4 +2085,26 @@ func test_player_health_full_before_tree_entry() -> bool:
 	ok = assert_eq(float(mounted.call("get_hp")), float(mounted.get("max_hp")), "mounted pre-tree HP reads full") and ok
 	ok = assert_true(not bool(mounted.call("is_dead")), "mounted pre-tree Health is not dead") and ok
 	instance.queue_free()
+	return ok
+
+
+func test_chaser_health_full_before_tree_entry() -> bool:
+	var ok := true
+	var chaser = load("res://enemies/chaser.gd").new()
+	ok = assert_true(chaser != null, "chaser script instantiates") and ok
+	if chaser == null:
+		return false
+	ok = assert_true(not chaser.is_inside_tree(), "fresh chaser reads pre-tree") and ok
+	ok = assert_eq(float(chaser.call("get_health")), float(chaser.get("max_health")), "pre-tree HP reads full") and ok
+	ok = assert_true(not bool(chaser.call("is_dead")), "pre-tree chaser is not dead") and ok
+	chaser.free()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var spawned := packed.instantiate()
+	ok = assert_true(not spawned.is_inside_tree(), "instantiated chaser reads pre-tree") and ok
+	ok = assert_eq(float(spawned.call("get_health")), float(spawned.get("max_health")), "spawned pre-tree HP reads full") and ok
+	ok = assert_true(not bool(spawned.call("is_dead")), "spawned pre-tree chaser is not dead") and ok
+	spawned.queue_free()
 	return ok
