@@ -80,6 +80,7 @@ func run_all() -> void:
 		"test_main_hud_zero_interval_no_hang",
 		"test_main_hud_reflects_damage_immediately",
 		"test_main_hud_rewires_after_health_replace",
+		"test_main_hud_rewires_after_spawner_replace",
 		"test_main_hud_shows_game_over_immediately",
 		"test_main_died_handler_ends_run_without_player_forwarding",
 		"test_main_hud_has_no_enemies_group_scan",
@@ -1556,6 +1557,76 @@ func test_main_hud_rewires_after_health_replace() -> bool:
 	await physics_frame
 	ok = assert_true(bool(instance.call("is_game_over")), "lethal hit after swap ends run within 2 frames") and ok
 	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER within 2 frames after swap") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_main_hud_rewires_after_spawner_replace() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if spawner == null or label == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var old_spawner: Node = spawner
+	ok = assert_true(old_spawner != null, "original Spawner present before swap") and ok
+	instance.remove_child(old_spawner)
+	var fresh: Node = load("res://spawner.gd").new()
+	fresh.name = "Spawner"
+	fresh.set("player_path", NodePath("../Player"))
+	fresh.set("spawn_interval", 3600.0)
+	instance.add_child(fresh)
+	var want := Callable(instance, "_on_spawner_alive_changed")
+	var wired := false
+	for i in 10:
+		await physics_frame
+		if fresh.is_connected("alive_changed", want):
+			wired = true
+			break
+	ok = assert_true(wired, "physics-tick rewire connects fresh Spawner signal") and ok
+	ok = assert_true(fresh.is_connected("alive_changed", want), "fresh Spawner alive_changed wired") and ok
+	ok = assert_true(instance.get("spawner") == fresh, "coordinator handle follows fresh Spawner") and ok
+	var conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("alive_changed"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			conns += 1
+	ok = assert_eq(conns, 1, "fresh Spawner carries exactly one alive_changed connection") and ok
+	instance.call("_connect_spawner_signals")
+	instance.call("_connect_spawner_signals")
+	var re_conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("alive_changed"):
+		var re_cal: Callable = entry["callable"]
+		if re_cal == want:
+			re_conns += 1
+	ok = assert_eq(re_conns, 1, "re-wiring twice keeps exactly one alive_changed connection") and ok
+	if old_spawner != null and is_instance_valid(old_spawner):
+		var stale := 0
+		if old_spawner.has_signal("alive_changed"):
+			for entry: Dictionary in old_spawner.get_signal_connection_list("alive_changed"):
+				var stale_cal: Callable = entry["callable"]
+				if stale_cal == want:
+					stale += 1
+		ok = assert_eq(stale, 0, "stale Spawner carries zero coordinator connections") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), int(fresh.call("get_alive")), "cache re-primed from fresh Spawner") and ok
+	fresh.set("alive_count", 5)
+	fresh.emit_signal("alive_changed", 5)
+	await process_frame
+	ok = assert_eq(int(instance.get("_cached_alive")), 5, "HUD cache follows fresh spawner push") and ok
+	ok = assert_true(label.text.contains("ALIVE=5"), "HUD shows ALIVE=5 without interval wait") and ok
+	if old_spawner != null and is_instance_valid(old_spawner):
+		old_spawner.queue_free()
 	instance.queue_free()
 	return ok
 
