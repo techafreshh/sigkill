@@ -22,16 +22,9 @@ var _wired_health: Node
 
 func _wire_health() -> void:
 	var current: Node = get_node_or_null("Health")
-	if _wired_health != null and is_instance_valid(_wired_health) and _wired_health != current:
-		if _wired_health.has_signal("died"):
-			if _wired_health.is_connected("died", _on_health_died):
-				_wired_health.disconnect("died", _on_health_died)
-	health = current
-	if health != null and is_instance_valid(health):
-		if health.has_signal("died"):
-			if not health.is_connected("died", _on_health_died):
-				health.connect("died", _on_health_died)
-	_wired_health = health
+	if _wired_health != current or health != current:
+		health = current
+		_wired_health = health
 
 
 func _refresh_health_wiring() -> void:
@@ -115,14 +108,6 @@ func _check_contact_damage(enemies: Array) -> void:
 	var after: float = float(health.call("get_hp"))
 	if after < before:
 		print("PLAYER_HIT hp=%d damage=%d" % [int(after), int(total)])
-
-
-func _on_health_died() -> void:
-	var coordinator := get_parent()
-	if coordinator == null or not is_instance_valid(coordinator):
-		return
-	if coordinator.has_method("end_run"):
-		coordinator.call("end_run", "death")
 
 
 func get_hp() -> float:
