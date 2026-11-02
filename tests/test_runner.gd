@@ -104,6 +104,10 @@ func run_all() -> void:
 		"test_main_hud_rewires_after_health_replace",
 		"test_main_hud_rewires_after_spawner_replace",
 		"test_main_hud_rewires_after_player_replace",
+		"test_main_spawner_push_follows_reparented_spawner",
+		"test_main_health_push_follows_reparented_player",
+		"test_main_spawner_rewire_follows_reparented_replace",
+		"test_main_player_rewire_follows_reparented_replace",
 		"test_main_hud_shows_game_over_immediately",
 		"test_main_died_handler_ends_run_without_player_forwarding",
 		"test_died_has_single_end_run_path",
@@ -2877,6 +2881,299 @@ func test_main_hud_rewires_after_player_replace() -> bool:
 	if old_player != null and is_instance_valid(old_player):
 		old_player.queue_free()
 	instance.queue_free()
+	return ok
+
+
+func test_main_spawner_push_follows_reparented_spawner() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if spawner == null or label == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var middle := Node2D.new()
+	middle.name = "FactionLayer"
+	instance.add_child(middle)
+	var kept: Vector2 = (spawner as Node2D).global_position
+	instance.remove_child(spawner)
+	middle.add_child(spawner)
+	(spawner as Node2D).global_position = kept
+	await process_frame
+	ok = assert_true(instance.get_node_or_null("Spawner") == null, "reparented Spawner leaves direct-child lookup empty") and ok
+	var wired := false
+	for i in 10:
+		await physics_frame
+		if instance.get("spawner") == spawner and instance.get("_wired_spawner") == spawner:
+			wired = true
+			break
+	ok = assert_true(wired, "physics-tick rewire follows Spawner under intermediate") and ok
+	ok = assert_true(instance.get("spawner") == spawner, "coordinator handle follows nested Spawner") and ok
+	var want := Callable(instance, "_on_spawner_alive_changed")
+	ok = assert_true(spawner.is_connected("alive_changed", want), "nested Spawner alive_changed wired") and ok
+	var conns := 0
+	for entry: Dictionary in (spawner as Node).get_signal_connection_list("alive_changed"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			conns += 1
+	ok = assert_eq(conns, 1, "nested Spawner carries exactly one alive_changed connection") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), int(spawner.call("get_alive")), "cache re-primed from nested Spawner") and ok
+	spawner.set("alive_count", 5)
+	spawner.emit_signal("alive_changed", 5)
+	await process_frame
+	ok = assert_eq(int(instance.get("_cached_alive")), 5, "HUD cache follows nested spawner push") and ok
+	ok = assert_true(label.text.contains("ALIVE=5"), "HUD shows ALIVE=5 without interval wait") and ok
+	instance.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_main_health_push_follows_reparented_player() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if player == null or label == null:
+		instance.queue_free()
+		return false
+	if spawner != null:
+		spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var middle := Node2D.new()
+	middle.name = "FactionLayer"
+	instance.add_child(middle)
+	var kept_pos: Vector2 = (player as Node2D).global_position
+	instance.remove_child(player)
+	middle.add_child(player)
+	(player as Node2D).global_position = kept_pos
+	await process_frame
+	ok = assert_true(instance.get_node_or_null("Player") == null, "reparented Player leaves direct-child lookup empty") and ok
+	var health: Node = (player as Node).get_node_or_null("Health")
+	ok = assert_true(health != null, "nested Player keeps Health child") and ok
+	if health == null:
+		instance.queue_free()
+		return false
+	var want_changed := Callable(instance, "_on_player_health_changed")
+	var want_died := Callable(instance, "_on_player_died")
+	var wired := false
+	for i in 10:
+		await physics_frame
+		if health.is_connected("health_changed", want_changed) and health.is_connected("died", want_died):
+			wired = true
+			break
+	ok = assert_true(wired, "physics-tick rewire connects nested Player Health signals") and ok
+	ok = assert_true(instance.get("player") == player, "coordinator handle follows nested Player") and ok
+	ok = assert_true(instance.get("_wired_health") == health, "coordinator wired handle follows nested Health") and ok
+	instance.set("_hud_accum", 0.0)
+	player.call("take_damage", 10.0)
+	ok = assert_eq(int(player.call("get_hp")), 90, "non-lethal hit on nested Player reduces HP to 90") and ok
+	await process_frame
+	await physics_frame
+	ok = assert_true(label.text.contains("HP=90"), "HUD shows HP=90 within 2 frames, no interval wait") and ok
+	ok = assert_true(not bool(instance.call("is_game_over")), "non-lethal hit on nested Player does not end run") and ok
+	for i in 40:
+		await physics_frame
+	instance.set("_hud_accum", 0.0)
+	player.call("take_damage", 100.0)
+	await process_frame
+	await physics_frame
+	ok = assert_true(bool(instance.call("is_game_over")), "lethal hit on nested Player ends run within 2 frames") and ok
+	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER within 2 frames") and ok
+	instance.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_main_spawner_rewire_follows_reparented_replace() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if spawner == null or label == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var middle := Node2D.new()
+	middle.name = "FactionLayer"
+	instance.add_child(middle)
+	var kept: Vector2 = (spawner as Node2D).global_position
+	instance.remove_child(spawner)
+	middle.add_child(spawner)
+	(spawner as Node2D).global_position = kept
+	await process_frame
+	var old_spawner: Node = spawner
+	old_spawner.set("peak_alive", 7)
+	middle.remove_child(old_spawner)
+	var fresh: Node = load("res://spawner.gd").new()
+	fresh.name = "Spawner"
+	fresh.set("spawn_interval", 3600.0)
+	fresh.set("peak_alive", 42)
+	fresh.set("alive_count", 4)
+	middle.add_child(fresh)
+	await process_frame
+	ok = assert_true(instance.get_node_or_null("Spawner") == null, "nested replacement leaves direct-child lookup empty") and ok
+	var want := Callable(instance, "_on_spawner_alive_changed")
+	var wired := false
+	for i in 10:
+		await physics_frame
+		if fresh.is_connected("alive_changed", want):
+			wired = true
+			break
+	ok = assert_true(wired, "physics-tick rewire connects nested fresh Spawner signal") and ok
+	ok = assert_true(instance.get("spawner") == fresh, "coordinator handle follows nested fresh Spawner") and ok
+	ok = assert_true(instance.get("_wired_spawner") == fresh, "coordinator wired handle follows nested fresh Spawner") and ok
+	var conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("alive_changed"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			conns += 1
+	ok = assert_eq(conns, 1, "nested fresh Spawner carries exactly one alive_changed connection") and ok
+	var stale := 0
+	if old_spawner != null and is_instance_valid(old_spawner) and old_spawner.has_signal("alive_changed"):
+		for entry: Dictionary in old_spawner.get_signal_connection_list("alive_changed"):
+			var stale_cal: Callable = entry["callable"]
+			if stale_cal == want:
+				stale += 1
+	ok = assert_eq(stale, 0, "stale Spawner carries zero coordinator connections") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), int(fresh.call("get_alive")), "cache re-primed from nested fresh Spawner") and ok
+	ok = assert_eq(int(instance.call("get_peak_alive")), 42, "same-frame peak read follows nested fresh Spawner") and ok
+	fresh.set("alive_count", 9)
+	fresh.emit_signal("alive_changed", 9)
+	await process_frame
+	ok = assert_eq(int(instance.get("_cached_alive")), 9, "HUD cache follows nested fresh spawner push") and ok
+	ok = assert_true(label.text.contains("ALIVE=9"), "HUD shows ALIVE=9 without interval wait") and ok
+	instance.call("reset_run")
+	ok = assert_eq(int(fresh.get("peak_alive")), 0, "reset_run zeroes nested fresh spawner peak") and ok
+	ok = assert_eq(int(old_spawner.get("peak_alive")), 7, "reset_run leaves detached stale spawner untouched") and ok
+	ok = assert_eq(int(instance.call("get_peak_alive")), 0, "coordinator reads zero peak after reset") and ok
+	if old_spawner != null and is_instance_valid(old_spawner):
+		old_spawner.queue_free()
+	instance.queue_free()
+	await _clear_enemies()
+	return ok
+
+
+func test_main_player_rewire_follows_reparented_replace() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(instance.get_node_or_null("Player") != null, "main scene has Player") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if spawner == null or label == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var middle := Node2D.new()
+	middle.name = "FactionLayer"
+	instance.add_child(middle)
+	var old_player: Node = instance.get_node_or_null("Player")
+	var kept_pos: Vector2 = (old_player as Node2D).global_position
+	instance.remove_child(old_player)
+	middle.add_child(old_player)
+	(old_player as Node2D).global_position = kept_pos
+	await process_frame
+	var old_health: Node = (old_player as Node).get_node_or_null("Health")
+	ok = assert_true(old_health != null, "original Health present before swap") and ok
+	middle.remove_child(old_player)
+	var fresh := CharacterBody2D.new()
+	fresh.name = "Player"
+	fresh.set_script(load("res://player.gd"))
+	var fresh_health: Node = load("res://player/health.gd").new()
+	fresh_health.name = "Health"
+	fresh.add_child(fresh_health)
+	middle.add_child(fresh)
+	await process_frame
+	ok = assert_true(instance.get_node_or_null("Player") == null, "nested replacement leaves direct-child lookup empty") and ok
+	var want_changed := Callable(instance, "_on_player_health_changed")
+	var want_died := Callable(instance, "_on_player_died")
+	var wired := false
+	for i in 10:
+		await physics_frame
+		if fresh_health.is_connected("health_changed", want_changed) and fresh_health.is_connected("died", want_died):
+			wired = true
+			break
+	ok = assert_true(wired, "physics-tick rewire connects nested fresh Player Health signals") and ok
+	ok = assert_true(instance.get("player") == fresh, "coordinator handle follows nested fresh Player") and ok
+	ok = assert_true(instance.get("_wired_health") == fresh_health, "coordinator wired handle follows nested fresh Health") and ok
+	var changed_conns := 0
+	for entry: Dictionary in fresh_health.get_signal_connection_list("health_changed"):
+		var changed_cal: Callable = entry["callable"]
+		if changed_cal == want_changed:
+			changed_conns += 1
+	ok = assert_eq(changed_conns, 1, "nested fresh Health carries exactly one health_changed connection") and ok
+	var died_conns := 0
+	for entry: Dictionary in fresh_health.get_signal_connection_list("died"):
+		var died_cal: Callable = entry["callable"]
+		if died_cal == want_died:
+			died_conns += 1
+	ok = assert_eq(died_conns, 1, "nested fresh Health carries exactly one died connection") and ok
+	var stale := 0
+	if old_health != null and is_instance_valid(old_health):
+		if old_health.has_signal("health_changed"):
+			for entry: Dictionary in old_health.get_signal_connection_list("health_changed"):
+				var stale_cal: Callable = entry["callable"]
+				if stale_cal == want_changed:
+					stale += 1
+		if old_health.has_signal("died"):
+			for entry: Dictionary in old_health.get_signal_connection_list("died"):
+				var stale_died_cal: Callable = entry["callable"]
+				if stale_died_cal == want_died:
+					stale += 1
+	ok = assert_eq(stale, 0, "stale Health carries zero coordinator connections") and ok
+	instance.set("_hud_accum", 0.0)
+	fresh.call("take_damage", 10.0)
+	ok = assert_eq(int(fresh.call("get_hp")), 90, "non-lethal hit on nested fresh Player reduces HP to 90") and ok
+	await process_frame
+	await physics_frame
+	ok = assert_true(label.text.contains("HP=90"), "HUD shows HP=90 within 2 frames after swap, no interval wait") and ok
+	for i in 40:
+		await physics_frame
+	instance.set("_hud_accum", 0.0)
+	fresh.call("take_damage", 100.0)
+	await process_frame
+	await physics_frame
+	ok = assert_true(bool(instance.call("is_game_over")), "lethal hit after swap ends run within 2 frames") and ok
+	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER within 2 frames after swap") and ok
+	if old_player != null and is_instance_valid(old_player):
+		old_player.queue_free()
+	instance.queue_free()
+	await _clear_enemies()
 	return ok
 
 

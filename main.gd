@@ -22,8 +22,8 @@ var _wired_spawner: Node
 
 func _ready() -> void:
 	print("MAIN_READY SIGKILL walking skeleton")
-	player = get_node_or_null("Player") as Node2D
-	spawner = get_node_or_null("Spawner") as Node2D
+	player = _find_player()
+	spawner = _find_spawner()
 	ground = get_node_or_null("Ground") as Node2D
 	status_label = get_node_or_null("StatusLabel") as Label
 	elapsed_seconds = 0.0
@@ -35,11 +35,25 @@ func _ready() -> void:
 	_refresh_hud()
 
 
+func _find_player() -> Node2D:
+	var direct := get_node_or_null("Player") as Node2D
+	if direct != null and is_instance_valid(direct):
+		return direct
+	return find_child("Player", true, false) as Node2D
+
+
+func _find_spawner() -> Node2D:
+	var direct := get_node_or_null("Spawner") as Node2D
+	if direct != null and is_instance_valid(direct):
+		return direct
+	return find_child("Spawner", true, false) as Node2D
+
+
 ## Synchronous HUD refresh on player health events: non-lethal damage
 ## otherwise trails the 0.25s poll by up to a full interval. Direct calls
 ## only; _hud_accum keeps its overshoot schedule untouched.
 func _connect_health_signals() -> void:
-	var current := get_node_or_null("Player") as Node2D
+	var current := _find_player()
 	if current == null or not is_instance_valid(current):
 		if _wired_health != null and is_instance_valid(_wired_health):
 			if _wired_health.has_signal("health_changed"):
@@ -87,7 +101,7 @@ func _on_player_died() -> void:
 ## with fresh child lookup each call, so a same-name replacement Spawner
 ## rewires within one physics tick even while the old node stays valid.
 func _connect_spawner_signals() -> void:
-	var current := get_node_or_null("Spawner") as Node2D
+	var current := _find_spawner()
 	if _wired_spawner != null and is_instance_valid(_wired_spawner) and _wired_spawner != current:
 		if _wired_spawner.has_signal("alive_changed"):
 			if _wired_spawner.is_connected("alive_changed", _on_spawner_alive_changed):
@@ -191,7 +205,7 @@ func restart_run() -> void:
 
 
 func get_peak_alive() -> int:
-	var live: Node = get_node_or_null("Spawner")
+	var live: Node = _find_spawner()
 	if live != null and is_instance_valid(live) and live.has_method("get_peak_alive"):
 		return int(live.call("get_peak_alive"))
 	if spawner == null or not is_instance_valid(spawner):
@@ -208,8 +222,8 @@ func reset_run() -> void:
 	game_over = false
 	run_reason = "death"
 	_hud_accum = 0.0
-	player = get_node_or_null("Player") as Node2D
-	spawner = get_node_or_null("Spawner") as Node2D
+	player = _find_player()
+	spawner = _find_spawner()
 	if spawner != null and is_instance_valid(spawner) and spawner.has_method("reset_peak"):
 		spawner.call("reset_peak")
 	if spawner != null and is_instance_valid(spawner) and spawner.has_method("clear_enemies"):
