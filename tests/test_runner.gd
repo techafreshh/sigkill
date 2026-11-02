@@ -82,6 +82,13 @@ func run_all() -> void:
 		"test_projectile_frees_on_first_hit",
 		"test_bolt_ticks_quiet_without_enemies",
 		"test_no_attack_input_action",
+		"test_combat_tuning_data_values",
+		"test_player_iframes_ignore_rapid_second_hit",
+		"test_player_contact_damage_reduces_hp",
+		"test_enemy_died_wires_kill_and_xp_log",
+		"test_enemy_lethal_damage_frees_within_half_second",
+		"test_lethal_contact_ends_run_with_run_end_log",
+		"test_restart_run_restores_full_run",
 	]
 	await _teardown_test_fixtures()
 	for t: String in tests:
@@ -1648,4 +1655,275 @@ func test_chaser_take_damage_guards() -> bool:
 	ok = assert_true(not bool(chaser.call("is_dead")), "guarded chaser still alive") and ok
 	ok = assert_true(is_instance_valid(chaser) and chaser.is_in_group("enemies"), "guarded chaser stays grouped") and ok
 	chaser.queue_free()
+	return ok
+
+
+func test_combat_tuning_data_values() -> bool:
+	var ok := true
+	var tuning = load("res://data/combat.gd")
+	ok = assert_true(tuning != null, "combat tuning script loads") and ok
+	if tuning == null:
+		return false
+	var params: Dictionary = tuning.PLAYER
+	ok = assert_eq(float(params.get("max_hp")), 100.0, "tuning max_hp is 100") and ok
+	ok = assert_eq(float(params.get("contact_damage")), 10.0, "tuning contact_damage is 10") and ok
+	ok = assert_eq(float(params.get("iframes")), 0.5, "tuning iframes is 0.5") and ok
+	ok = assert_eq(float(params.get("contact_radius")), 26.0, "tuning contact_radius is 26") and ok
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	var health := instance.get_node_or_null("Player/Health")
+	ok = assert_true(health != null, "main scene mounts Health under Player") and ok
+	if player == null or health == null:
+		instance.queue_free()
+		return false
+	ok = assert_eq(float(health.get("max_hp")), float(params.get("max_hp")), "live Health max_hp matches tuning") and ok
+	ok = assert_eq(float(health.get("invuln_duration")), float(params.get("iframes")), "live Health iframes match tuning") and ok
+	ok = assert_eq(float(player.get("contact_damage")), float(params.get("contact_damage")), "live contact_damage matches tuning") and ok
+	ok = assert_eq(float(player.get("contact_radius")), float(params.get("contact_radius")), "live contact_radius matches tuning") and ok
+	ok = assert_eq(float(player.call("get_hp")), 100.0, "player starts at full HP") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_player_iframes_ignore_rapid_second_hit() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	ok = assert_eq(float(player.call("get_hp")), 100.0, "player starts at HP 100") and ok
+	player.call("take_damage", 10.0)
+	ok = assert_eq(int(player.call("get_hp")), 90, "first hit reduces HP to 90") and ok
+	player.call("take_damage", 10.0)
+	ok = assert_eq(int(player.call("get_hp")), 90, "rapid second hit ignored by i-frames") and ok
+	for i in 36:
+		await physics_frame
+	player.call("take_damage", 10.0)
+	ok = assert_eq(int(player.call("get_hp")), 80, "hit after i-frames expire reduces HP again") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_player_contact_damage_reduces_hp() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var before := float(player.call("get_hp"))
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = player.global_position
+	chaser.set("speed", 0.0)
+	chaser.set("target", player)
+	var touched := false
+	for i in 30:
+		await physics_frame
+		if float(player.call("get_hp")) < before:
+			touched = true
+			break
+	ok = assert_true(touched, "contact with chaser reduces HP within 30 frames") and ok
+	chaser.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_enemy_died_wires_kill_and_xp_log() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if spawner == null:
+		instance.queue_free()
+		return false
+	var spawned: Node = null
+	for i in 60:
+		await physics_frame
+		var live := get_nodes_in_group("enemies")
+		if live.size() > 0 and is_instance_valid(live[0]):
+			spawned = live[0]
+			break
+	ok = assert_true(spawned != null, "spawner produced a chaser") and ok
+	if spawned == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	var baseline := int(instance.call("get_kills"))
+	spawned.call("take_damage", float(spawned.get("max_health")))
+	var raised := false
+	for i in 30:
+		await physics_frame
+		if int(instance.call("get_kills")) == baseline + 1:
+			raised = true
+			break
+	ok = assert_true(raised, "lethal damage on spawner chaser raises kills by 1") and ok
+	var source := FileAccess.get_file_as_string("res://spawner.gd")
+	ok = assert_true(source.contains("XP_PLACEHOLDER"), "spawner logs XP_PLACEHOLDER on kill") and ok
+	ok = assert_true(source.contains("ENEMY_POOF"), "spawner logs ENEMY_POOF on kill") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_enemy_lethal_damage_frees_within_half_second() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	await process_frame
+	chaser.call("take_damage", float(chaser.get("max_health")))
+	var freed := false
+	for i in 30:
+		await physics_frame
+		if not is_instance_valid(chaser):
+			freed = true
+			break
+	ok = assert_true(freed, "lethally hit chaser freed within half a second") and ok
+	return ok
+
+
+func test_lethal_contact_ends_run_with_run_end_log() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	player.call("take_damage", 95.0)
+	ok = assert_eq(int(player.call("get_hp")), 5, "player reduced to HP 5") and ok
+	for i in 36:
+		await physics_frame
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = player.global_position
+	chaser.set("speed", 0.0)
+	chaser.set("target", player)
+	var over := false
+	for i in 60:
+		await physics_frame
+		if bool(instance.call("is_game_over")) and bool(instance.get("game_over")) and not bool(instance.call("is_run_active")):
+			over = true
+			break
+	ok = assert_true(over, "lethal contact ends the run within a second") and ok
+	ok = assert_true(bool(instance.get("game_over")), "game_over flag set") and ok
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after death") and ok
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER line") and ok
+	var source := FileAccess.get_file_as_string("res://main.gd")
+	ok = assert_true(source.contains("RUN_END=death"), "coordinator logs RUN_END=death") and ok
+	ok = assert_true(source.contains("game_over=true"), "coordinator logs game_over=true") and ok
+	ok = assert_true(source.contains("ERRORS=0"), "coordinator logs ERRORS=0") and ok
+	chaser.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_restart_run_restores_full_run() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	instance.call("register_kill")
+	instance.call("register_kill")
+	player.call("take_damage", 95.0)
+	for i in 36:
+		await physics_frame
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = player.global_position
+	chaser.set("speed", 0.0)
+	chaser.set("target", player)
+	var over := false
+	for i in 60:
+		await physics_frame
+		if bool(instance.call("is_game_over")):
+			over = true
+			break
+	ok = assert_true(over, "run ended before restart") and ok
+	var key_event := InputEventKey.new()
+	key_event.pressed = true
+	key_event.echo = false
+	key_event.keycode = KEY_R
+	key_event.physical_keycode = KEY_R
+	instance.call("_unhandled_input", key_event)
+	ok = assert_eq(float(player.call("get_hp")), 100.0, "restart restores HP 100") and ok
+	ok = assert_eq(int(instance.call("get_kills")), 0, "restart zeroes kills") and ok
+	ok = assert_eq(float(instance.call("get_elapsed")), 0.0, "restart zeroes clock") and ok
+	ok = assert_eq(bool(instance.get("game_over")), false, "restart clears game_over") and ok
+	ok = assert_true(bool(instance.call("is_run_active")), "restart reactivates run") and ok
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(label != null and not label.text.contains("GAME_OVER"), "HUD clears GAME_OVER after restart") and ok
+	chaser.queue_free()
+	instance.queue_free()
 	return ok
