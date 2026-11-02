@@ -107,6 +107,7 @@ func run_all() -> void:
 		"test_bolt_fires_at_nearest_in_range",
 		"test_projectile_frees_on_first_hit",
 		"test_bolt_ticks_quiet_without_enemies",
+		"test_bolt_halts_when_run_inactive",
 		"test_no_attack_input_action",
 		"test_combat_tuning_data_values",
 		"test_player_iframes_ignore_rapid_second_hit",
@@ -3039,6 +3040,96 @@ func test_bolt_ticks_quiet_without_enemies() -> bool:
 	ok = assert_true(fired, "bolt fires within 2s once an enemy enters range") and ok
 	chaser.queue_free()
 	instance.queue_free()
+	return ok
+
+
+func test_bolt_halts_when_run_inactive() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	var bolt := instance.get_node_or_null("Player/Bolt")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(bolt != null, "main scene has Bolt") and ok
+	if player == null or spawner == null or bolt == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = player.global_position + Vector2(200, 0)
+	chaser.set("speed", 0.0)
+	chaser.set("target", player)
+	chaser.set("max_health", 1000.0)
+	chaser.set("health", 1000.0)
+	await process_frame
+	var fired := false
+	for i in 300:
+		await physics_frame
+		if int(bolt.get("shots")) >= 1:
+			fired = true
+			break
+	ok = assert_true(fired, "bolt fires at least one shot while active") and ok
+	instance.call("end_run", "death")
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after end_run") and ok
+	var frozen_shots: int = int(bolt.get("shots"))
+	var frozen_count: int = get_nodes_in_group("projectiles").size()
+	var frozen_hp: float = float(chaser.call("get_health"))
+	for i in 60:
+		await physics_frame
+	ok = assert_eq(int(bolt.get("shots")), frozen_shots, "inactive bolt holds shots") and ok
+	ok = assert_eq(get_nodes_in_group("projectiles").size(), frozen_count, "inactive bolt spawns no projectiles") and ok
+	ok = assert_eq(float(chaser.call("get_health")), frozen_hp, "inactive bolt deals no damage") and ok
+	bolt.call("_try_fire")
+	bolt.call("_on_cooldown_timeout")
+	await process_frame
+	ok = assert_eq(int(bolt.get("shots")), frozen_shots, "direct _try_fire is a no-op while inactive") and ok
+	ok = assert_eq(get_nodes_in_group("projectiles").size(), frozen_count, "direct timeout spawns nothing while inactive") and ok
+	instance.call("reset_run")
+	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
+	var resumed := false
+	for i in 180:
+		await physics_frame
+		if int(bolt.get("shots")) > frozen_shots:
+			resumed = true
+			break
+	ok = assert_true(resumed, "bolt resumes firing after reset") and ok
+	chaser.queue_free()
+	instance.queue_free()
+	await _clear_enemies()
+	var lone = load("res://weapons/bolt.gd").new()
+	root.add_child(lone)
+	lone.set_physics_process(false)
+	await process_frame
+	ok = assert_true(bool(lone.call("_is_run_active")), "detached bolt defaults to active") and ok
+	var dummy := packed.instantiate() as CharacterBody2D
+	root.add_child(dummy)
+	dummy.global_position = lone.global_position + Vector2(200, 0)
+	dummy.set("speed", 0.0)
+	dummy.set("target", null)
+	dummy.set("velocity", Vector2.ZERO)
+	await process_frame
+	var lone_before: int = int(lone.get("shots"))
+	lone.call("_try_fire")
+	ok = assert_eq(int(lone.get("shots")), lone_before + 1, "detached bolt fires on direct call") and ok
+	dummy.queue_free()
+	lone.queue_free()
+	for node in get_nodes_in_group("projectiles"):
+		if is_instance_valid(node):
+			node.queue_free()
+	await _clear_enemies()
 	return ok
 
 

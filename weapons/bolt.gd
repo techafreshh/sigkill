@@ -22,13 +22,30 @@ func _ready() -> void:
 		_timer.start()
 
 
+func _is_run_active() -> bool:
+	if not is_inside_tree():
+		return true
+	var node := get_parent()
+	while node != null and is_instance_valid(node):
+		if node.has_method("is_run_active"):
+			return bool(node.call("is_run_active"))
+		if "run_active" in node:
+			return bool(node.get("run_active"))
+		node = node.get_parent()
+	return true
+
+
 func _on_cooldown_timeout() -> void:
+	if not _is_run_active():
+		return
 	_try_fire()
 	if is_instance_valid(_timer):
 		_timer.start()
 
 
 func _try_fire() -> void:
+	if not _is_run_active():
+		return
 	if get_tree() == null:
 		return
 	var origin := global_position
