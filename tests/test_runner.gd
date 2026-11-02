@@ -104,6 +104,7 @@ func run_all() -> void:
 		"test_lethal_contact_ends_run_with_run_end_log",
 		"test_player_died_rewire_after_health_replace",
 		"test_player_health_rewire_on_replace",
+		"test_player_rewire_same_node_is_noop",
 		"test_restart_run_restores_full_run",
 	"test_restore_full_health_rewires_after_swap",
 		"test_player_health_full_before_tree_entry",
@@ -2621,6 +2622,87 @@ func test_player_health_rewire_on_replace() -> bool:
 	var source := FileAccess.get_file_as_string("res://player.gd")
 	ok = assert_true(source.contains("has_signal(\"died\")"), "player retains has_signal died guard") and ok
 	ok = assert_true(source.contains("is_connected"), "player guards died re-wire with is_connected") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_player_rewire_same_node_is_noop() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var health := player.get_node_or_null("Health")
+	ok = assert_true(health != null, "original Health present before re-wire") and ok
+	if health == null:
+		instance.queue_free()
+		return false
+	var want := Callable(player, "_on_health_died")
+	ok = assert_true(health.is_connected("died", want), "original Health wired to died") and ok
+	var before := 0
+	for entry: Dictionary in health.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			before += 1
+	ok = assert_eq(before, 1, "same-node Health carries exactly one died connection") and ok
+	player.call("take_damage", 0.0)
+	player.call("get_hp")
+	player.call("_wire_health")
+	player.call("take_damage", 0.0)
+	player.call("get_hp")
+	player.call("_wire_health")
+	ok = assert_true(health.is_connected("died", want), "repeated lazy re-wires stay connected") and ok
+	var kept := 0
+	for entry: Dictionary in health.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			kept += 1
+	ok = assert_eq(kept, 1, "repeated lazy re-wires keep exactly one died connection") and ok
+	var source := FileAccess.get_file_as_string("res://player.gd")
+	ok = assert_true(source.contains("_wired_health != current"), "player guards re-wire with identity check") and ok
+	var old_health := player.get_node_or_null("Health")
+	player.remove_child(old_health)
+	old_health.queue_free()
+	var fresh: Node = load("res://player/health.gd").new()
+	fresh.name = "Health"
+	player.add_child(fresh)
+	await process_frame
+	await process_frame
+	ok = assert_true(player.get("health") == fresh, "health proxy follows the swapped child") and ok
+	ok = assert_true(fresh.is_connected("died", want), "swap wires fresh Health died") and ok
+	var swapped := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == want:
+			swapped += 1
+	ok = assert_eq(swapped, 1, "swapped Health carries exactly one died connection") and ok
+	var stale := 0
+	if is_instance_valid(old_health):
+		for entry: Dictionary in old_health.get_signal_connection_list("died"):
+			var cal: Callable = entry["callable"]
+			if cal == want:
+				stale += 1
+	ok = assert_eq(stale, 0, "old Health carries no died connection after swap") and ok
+	ok = assert_true(not bool(instance.call("is_game_over")), "run active before lethal hit on replacement") and ok
+	player.call("take_damage", 100.0)
+	var over := false
+	for i in 60:
+		await physics_frame
+		if bool(instance.call("is_game_over")) and not bool(instance.call("is_run_active")):
+			over = true
+			break
+	ok = assert_true(over, "lethal hit on replaced Health ends the run within a second") and ok
 	instance.queue_free()
 	return ok
 
