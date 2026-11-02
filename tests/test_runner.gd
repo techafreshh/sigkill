@@ -90,6 +90,7 @@ func run_all() -> void:
 		"test_no_attack_input_action",
 		"test_combat_tuning_data_values",
 		"test_player_iframes_ignore_rapid_second_hit",
+"test_contact_damage_with_methodless_health_is_safe",
 	"test_player_contact_damage_reduces_hp",
 		"test_player_stacked_contact_damage_sums",
 		"test_enemy_died_wires_kill_and_xp_log",
@@ -1873,6 +1874,60 @@ func test_player_iframes_ignore_rapid_second_hit() -> bool:
 		await physics_frame
 	player.call("take_damage", 10.0)
 	ok = assert_eq(int(player.call("get_hp")), 80, "hit after i-frames expire reduces HP again") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_contact_damage_with_methodless_health_is_safe() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as Node2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var old_health := player.get_node_or_null("Health")
+	if old_health != null:
+		player.remove_child(old_health)
+		old_health.queue_free()
+	var bare := Node.new()
+	bare.name = "Health"
+	player.add_child(bare)
+	player.set("health", bare)
+	await process_frame
+	ok = assert_true(not bare.has_method("is_dead"), "bare Health exposes no is_dead") and ok
+	ok = assert_true(not bare.has_method("get_hp"), "bare Health exposes no get_hp") and ok
+	ok = assert_true(not bare.has_method("take_damage"), "bare Health exposes no take_damage") and ok
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var chaser := packed.instantiate() as CharacterBody2D
+	root.add_child(chaser)
+	chaser.global_position = player.global_position
+	chaser.set("speed", 0.0)
+	chaser.set("target", player)
+	var fallback := float(player.get("max_hp"))
+	for i in 30:
+		await physics_frame
+	var source := FileAccess.get_file_as_string("res://player.gd")
+	ok = assert_true(source.contains('has_method("is_dead")'), "contact guard checks is_dead") and ok
+	ok = assert_true(source.contains('has_method("get_hp")'), "contact guard checks get_hp") and ok
+	ok = assert_true(source.contains('has_method("take_damage")'), "contact guard checks take_damage") and ok
+	ok = assert_eq(float(player.call("get_hp")), fallback, "method-less Health proxy reads max_hp fallback") and ok
+	ok = assert_true(is_instance_valid(player), "player survives method-less Health contact ticks") and ok
+	ok = assert_true(is_instance_valid(bare), "method-less Health node survives contact ticks") and ok
+	chaser.queue_free()
 	instance.queue_free()
 	return ok
 
