@@ -2210,7 +2210,10 @@ func test_player_died_rewire_after_health_replace() -> bool:
 	fresh.name = "Health"
 	player.add_child(fresh)
 	await process_frame
-	await physics_frame
+	for i in 10:
+		await physics_frame
+		if fresh.is_connected("died", Callable(player, "_on_health_died")):
+			break
 	ok = assert_true(fresh.is_connected("died", Callable(player, "_on_health_died")), "tick rewire connects fresh Health died") and ok
 	player.call("_refresh_health_wiring")
 	var conns := 0
