@@ -165,8 +165,8 @@ func _sanitize_run_reason(reason: String) -> String:
 	return out
 
 
-## Terminal run end: freeze the sim clock, spawner, and HUD (player and enemy
-## motion keep running headless-harmlessly) and publish the greppable token.
+## Terminal run end: freeze the sim clock, spawner, and enemy motion with HUD
+## (player motion keeps running headless-harmlessly) and publish the greppable token.
 func end_run(reason: String = "death") -> void:
 	if game_over:
 		return

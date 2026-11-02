@@ -44,6 +44,19 @@ func _resolve_target() -> void:
 		target = get_tree().get_first_node_in_group("player") as Node2D
 
 
+func _is_run_active() -> bool:
+	if not is_inside_tree():
+		return true
+	var node := get_parent()
+	while node != null and is_instance_valid(node):
+		if node.has_method("is_run_active"):
+			return bool(node.call("is_run_active"))
+		if "run_active" in node:
+			return bool(node.get("run_active"))
+		node = node.get_parent()
+	return true
+
+
 func is_dead() -> bool:
 	return _dead or health <= 0.0
 
@@ -66,6 +79,8 @@ func take_damage(amount: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if not _is_run_active():
+		return
 	if not is_instance_valid(target):
 		_resolve_target()
 	if not is_instance_valid(target):
