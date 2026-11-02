@@ -93,6 +93,7 @@ func run_all() -> void:
 "test_contact_damage_with_methodless_health_is_safe",
 	"test_player_contact_damage_reduces_hp",
 		"test_player_stacked_contact_damage_sums",
+		"test_player_contact_path_scans_enemies_once",
 		"test_enemy_died_wires_kill_and_xp_log",
 		"test_enemy_lethal_damage_frees_within_half_second",
 		"test_lethal_contact_ends_run_with_run_end_log",
@@ -2013,6 +2014,60 @@ func test_player_stacked_contact_damage_sums() -> bool:
 			break
 	ok = assert_true(touched, "stacked contact reduces HP within 30 frames") and ok
 	ok = assert_eq(int(player.call("get_hp")), int(100.0 - 3.0 * per_hit), "3 overlapping chasers deal summed damage in one tick") and ok
+	for chaser in chasers:
+		if is_instance_valid(chaser):
+			chaser.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_player_contact_path_scans_enemies_once() -> bool:
+	var ok := true
+	var source := FileAccess.get_file_as_string("res://player.gd")
+	ok = assert_eq(source.count('get_nodes_in_group("enemies")'), 1, "contact path issues exactly one enemies-group lookup per tick") and ok
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player") as CharacterBody2D
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(packed != null, "chaser scene loads as PackedScene") and ok
+	if packed == null:
+		instance.queue_free()
+		return false
+	var per_hit := float(player.get("contact_damage"))
+	var hp_before := float(player.call("get_hp"))
+	var center: Vector2 = player.global_position
+	var ring := 4
+	var chasers: Array = []
+	for i in ring:
+		var chaser := packed.instantiate() as CharacterBody2D
+		root.add_child(chaser)
+		var angle := TAU * float(i) / float(ring)
+		chaser.global_position = center + Vector2(cos(angle), sin(angle)) * 20.0
+		chaser.set("target", player)
+		chasers.append(chaser)
+	var before: Vector2 = player.global_position
+	Input.action_press("move_right")
+	for i in 60:
+		await physics_frame
+	Input.action_release("move_right")
+	var pushed: float = player.global_position.distance_to(before)
+	ok = assert_true(pushed > 50.0, "moving player shoves through overlapping ring (%.1f px)" % pushed) and ok
+	ok = assert_true(float(player.call("get_hp")) < hp_before, "overlapping ring deals contact damage in the same tick window") and ok
+	ok = assert_true(float(player.call("get_hp")) <= hp_before - per_hit, "contact tick deals at least one contact_damage") and ok
+	_release_move_actions()
 	for chaser in chasers:
 		if is_instance_valid(chaser):
 			chaser.queue_free()
