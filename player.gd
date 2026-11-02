@@ -11,6 +11,8 @@ const TERMINAL_THEME := preload("res://data/theme.tres")
 @export var shove_radius := 128.0
 @export var contact_damage := 10.0
 @export var contact_radius := 26.0
+## Full-HP fallback for the get_hp() proxy when Health is missing/invalid.
+@export var max_hp := 100.0
 
 var theme: TerminalTheme
 
@@ -95,7 +97,7 @@ func _on_health_died() -> void:
 func get_hp() -> float:
 	if health != null and is_instance_valid(health) and health.has_method("get_hp"):
 		return float(health.call("get_hp"))
-	return 0.0
+	return max_hp
 
 
 func take_damage(amount: float) -> void:
