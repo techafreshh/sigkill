@@ -75,6 +75,7 @@ func run_all() -> void:
 		"test_chaser_halts_when_run_inactive",
 		"test_end_run_comment_matches_chaser_freeze",
 		"test_projectile_halts_when_run_inactive",
+		"test_end_run_comment_matches_freeze",
 		"test_chaser_has_take_damage",
 		"test_chaser_take_damage_reduces_health",
 		"test_chaser_take_damage_kills_at_zero",
@@ -1743,6 +1744,52 @@ func test_end_run_comment_matches_chaser_freeze() -> bool:
 		else:
 			phys_block = chaser_source.substr(phys_idx, next_func - phys_idx)
 	ok = assert_true(phys_block.contains("if not _is_run_active():"), "chaser freeze guard lives in _physics_process") and ok
+	return ok
+
+
+func test_end_run_comment_matches_freeze() -> bool:
+	var ok := true
+	var main_source := FileAccess.get_file_as_string("res://main.gd")
+	ok = assert_eq(main_source.count("enemy motion keeps running"), 0, "end_run doc holds no stale freeze claim") and ok
+	ok = assert_true(not main_source.contains("enemy motion keeps running"), "stale enemy-motion phrase is gone") and ok
+	var doc_idx := main_source.find("## Terminal run end:")
+	ok = assert_true(doc_idx >= 0, "end_run doc block present") and ok
+	var doc_block := ""
+	if doc_idx >= 0:
+		var func_idx := main_source.find("func end_run", doc_idx)
+		if func_idx < 0:
+			doc_block = main_source.substr(doc_idx)
+		else:
+			doc_block = main_source.substr(doc_idx, func_idx - doc_idx)
+	ok = assert_true(doc_block.contains("freeze"), "end_run doc names the freeze") and ok
+	ok = assert_true(doc_block.contains("enemy"), "end_run doc inventories enemy freeze") and ok
+	ok = assert_true(doc_block.contains("projectile"), "end_run doc inventories projectile freeze") and ok
+	var chaser_source := FileAccess.get_file_as_string("res://enemies/chaser.gd")
+	ok = assert_true(chaser_source.contains("func _is_run_active"), "chaser keeps run guard") and ok
+	ok = assert_true(chaser_source.contains("if not _is_run_active():"), "chaser keeps inactive early return") and ok
+	var chaser_phys_idx := chaser_source.find("func _physics_process")
+	ok = assert_true(chaser_phys_idx >= 0, "chaser defines _physics_process") and ok
+	var chaser_phys_block := ""
+	if chaser_phys_idx >= 0:
+		var chaser_next := chaser_source.find("\nfunc ", chaser_phys_idx + 1)
+		if chaser_next < 0:
+			chaser_phys_block = chaser_source.substr(chaser_phys_idx)
+		else:
+			chaser_phys_block = chaser_source.substr(chaser_phys_idx, chaser_next - chaser_phys_idx)
+	ok = assert_true(chaser_phys_block.contains("if not _is_run_active():"), "chaser freeze guard lives in _physics_process") and ok
+	var projectile_source := FileAccess.get_file_as_string("res://weapons/projectile.gd")
+	ok = assert_true(projectile_source.contains("func _is_run_active"), "projectile keeps run guard") and ok
+	ok = assert_true(projectile_source.contains("if not _is_run_active():"), "projectile keeps inactive early return") and ok
+	var projectile_phys_idx := projectile_source.find("func _physics_process")
+	ok = assert_true(projectile_phys_idx >= 0, "projectile defines _physics_process") and ok
+	var projectile_phys_block := ""
+	if projectile_phys_idx >= 0:
+		var projectile_next := projectile_source.find("\nfunc ", projectile_phys_idx + 1)
+		if projectile_next < 0:
+			projectile_phys_block = projectile_source.substr(projectile_phys_idx)
+		else:
+			projectile_phys_block = projectile_source.substr(projectile_phys_idx, projectile_next - projectile_phys_idx)
+	ok = assert_true(projectile_phys_block.contains("if not _is_run_active():"), "projectile freeze guard lives in _physics_process") and ok
 	return ok
 
 
