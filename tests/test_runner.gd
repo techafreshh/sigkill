@@ -1770,6 +1770,28 @@ func test_projectile_halts_when_run_inactive() -> bool:
 	ok = assert_true(is_instance_valid(doomed), "near-limit projectile is not freed by expiry while inactive") and ok
 	if is_instance_valid(doomed):
 		ok = assert_eq(float(doomed.get("_travelled")), float(doomed.get("max_range")) - 0.01, "inactive projectile holds near-limit travelled") and ok
+	var hit_packed := load("res://enemies/chaser.tscn") as PackedScene
+	ok = assert_true(hit_packed != null, "chaser scene loads for inactive hit pin") and ok
+	var victim := hit_packed.instantiate() as CharacterBody2D
+	instance.add_child(victim)
+	victim.global_position = player.global_position + Vector2(0, 300)
+	victim.set("target", null)
+	victim.set("velocity", Vector2.ZERO)
+	victim.set("max_health", 1000.0)
+	victim.set("health", 1000.0)
+	await process_frame
+	victim.set("max_health", 1000.0)
+	victim.set("health", 1000.0)
+	var probe = load("res://weapons/projectile.gd").new()
+	instance.add_child(probe)
+	await process_frame
+	probe.call("launch", from, from + Vector2(100, 0), 700.0, 1, 950.0)
+	probe.set_physics_process(false)
+	await process_frame
+	var hp_before: float = float(victim.call("get_health"))
+	probe.call("_on_body_entered", victim)
+	ok = assert_eq(float(victim.call("get_health")), hp_before, "inactive hit deals no damage") and ok
+	ok = assert_true(is_instance_valid(probe) and not probe.is_queued_for_deletion(), "inactive hit does not free projectile") and ok
 	instance.call("reset_run")
 	ok = assert_true(bool(instance.call("is_run_active")), "reset reactivates run") and ok
 	var resume_before: Vector2 = projectile.global_position
@@ -1790,6 +1812,12 @@ func test_projectile_halts_when_run_inactive() -> bool:
 			doomed_freed = true
 			break
 	ok = assert_true(doomed_freed, "expiry resumes after reset") and ok
+	var hp_active_before: float = float(victim.call("get_health"))
+	probe.call("_on_body_entered", victim)
+	ok = assert_eq(float(victim.call("get_health")), hp_active_before - 1.0, "active hit damages after reset") and ok
+	ok = assert_true(probe.is_queued_for_deletion(), "active hit queues free after reset") and ok
+	await process_frame
+	ok = assert_true(not is_instance_valid(probe), "active hit frees projectile after reset") and ok
 	instance.queue_free()
 	await _clear_enemies()
 	var lone = load("res://weapons/projectile.gd").new()
