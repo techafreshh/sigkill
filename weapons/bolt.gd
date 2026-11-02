@@ -35,6 +35,11 @@ func _is_run_active() -> bool:
 	return true
 
 
+func _physics_process(_delta: float) -> void:
+	if is_instance_valid(_timer):
+		_timer.paused = not _is_run_active()
+
+
 func _on_cooldown_timeout() -> void:
 	if not _is_run_active():
 		return
