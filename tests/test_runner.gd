@@ -96,6 +96,7 @@ func run_all() -> void:
 		"test_enemy_died_wires_kill_and_xp_log",
 		"test_enemy_lethal_damage_frees_within_half_second",
 		"test_lethal_contact_ends_run_with_run_end_log",
+		"test_player_died_rewire_after_health_replace",
 		"test_restart_run_restores_full_run",
 		"test_player_health_full_before_tree_entry",
 		"test_chaser_health_full_before_tree_entry",
@@ -2179,6 +2180,64 @@ func test_lethal_contact_ends_run_with_run_end_log() -> bool:
 	ok = assert_true(source.contains("game_over=true"), "coordinator logs game_over=true") and ok
 	ok = assert_true(source.contains("ERRORS=0"), "coordinator logs ERRORS=0") and ok
 	chaser.queue_free()
+	instance.queue_free()
+	return ok
+
+
+func test_player_died_rewire_after_health_replace() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var player := instance.get_node_or_null("Player")
+	var spawner := instance.get_node_or_null("Spawner")
+	ok = assert_true(player != null, "main scene has Player") and ok
+	if player == null or spawner == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	await _clear_enemies()
+	_release_move_actions()
+	var old_health := player.get_node_or_null("Health")
+	ok = assert_true(old_health != null, "original Health present before swap") and ok
+	if old_health != null:
+		player.remove_child(old_health)
+		old_health.queue_free()
+	var fresh: Node = load("res://player/health.gd").new()
+	fresh.name = "Health"
+	player.add_child(fresh)
+	await process_frame
+	for i in 10:
+		await physics_frame
+		if fresh.is_connected("died", Callable(player, "_on_health_died")):
+			break
+	ok = assert_true(fresh.is_connected("died", Callable(player, "_on_health_died")), "tick rewire connects fresh Health died") and ok
+	player.call("_refresh_health_wiring")
+	var conns := 0
+	for entry: Dictionary in fresh.get_signal_connection_list("died"):
+		var cal: Callable = entry["callable"]
+		if cal == Callable(player, "_on_health_died"):
+			conns += 1
+	ok = assert_eq(conns, 1, "re-wiring same Health keeps exactly one died connection") and ok
+	ok = assert_true(not bool(instance.call("is_game_over")), "run active before lethal hit on replacement") and ok
+	player.call("take_damage", 100.0)
+	var over := false
+	for i in 60:
+		await physics_frame
+		if bool(instance.call("is_game_over")) and not bool(instance.call("is_run_active")):
+			over = true
+			break
+	ok = assert_true(over, "lethal hit on replaced Health ends the run within a second") and ok
+	ok = assert_true(bool(instance.get("game_over")), "game_over flag set after replacement death") and ok
+	ok = assert_true(not bool(instance.call("is_run_active")), "run inactive after replacement death") and ok
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER line") and ok
+	var source := FileAccess.get_file_as_string("res://player.gd")
+	ok = assert_true(source.contains("has_signal(\"died\")"), "player retains has_signal died guard") and ok
+	ok = assert_true(source.contains("is_connected"), "player guards died re-wire with is_connected") and ok
 	instance.queue_free()
 	return ok
 
