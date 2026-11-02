@@ -81,6 +81,9 @@ func run_all() -> void:
 		"test_main_hud_reflects_damage_immediately",
 		"test_main_hud_rewires_after_health_replace",
 		"test_main_hud_shows_game_over_immediately",
+		"test_main_hud_has_no_enemies_group_scan",
+		"test_main_hud_alive_tracks_spawner_cache",
+		"test_spawner_alive_count_tracks_spawn_and_died",
 		"test_sanity_math",
 		"test_nominal_seconds_math",
 		"test_measured_clock_accumulates",
@@ -1580,6 +1583,112 @@ func test_main_hud_shows_game_over_immediately() -> bool:
 	var label := instance.get_node_or_null("StatusLabel") as Label
 	ok = assert_true(label != null and label.text.contains("GAME_OVER"), "HUD shows GAME_OVER within 2 frames") and ok
 	instance.queue_free()
+	return ok
+
+
+func test_main_hud_has_no_enemies_group_scan() -> bool:
+	var ok := true
+	var source := FileAccess.get_file_as_string("res://main.gd")
+	ok = assert_true(not source.contains('get_nodes_in_group("enemies")'), "main.gd issues no enemies-group scan") and ok
+	ok = assert_eq(source.count("get_nodes_in_group"), 0, "main.gd contains zero get_nodes_in_group calls") and ok
+	ok = assert_eq(source.count("get_first_node_in_group"), 0, "main.gd contains zero get_first_node_in_group calls") and ok
+	ok = assert_eq(source.count("call_group"), 0, "main.gd contains zero call_group calls") and ok
+	ok = assert_true(source.contains("_cached_alive"), "HUD renders from cached alive count") and ok
+	ok = assert_true(source.contains("alive_changed"), "HUD subscribes to spawner alive_changed") and ok
+	return ok
+
+
+func test_main_hud_alive_tracks_spawner_cache() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var instance := _instantiate_main()
+	ok = assert_true(instance != null, "main scene instantiates") and ok
+	if instance == null:
+		return false
+	await process_frame
+	var spawner := instance.get_node_or_null("Spawner")
+	var label := instance.get_node_or_null("StatusLabel") as Label
+	ok = assert_true(spawner != null, "main scene has Spawner") and ok
+	ok = assert_true(label != null, "main scene has StatusLabel") and ok
+	if spawner == null or label == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
+	await process_frame
+	ok = assert_true(get_nodes_in_group("enemies").is_empty(), "no background spawns before batch") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 0, "spawner cache starts at zero") and ok
+	spawner.set("batch_size", 3)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("_accum", 0.0)
+	spawner.call("_physics_process", 0.6)
+	await process_frame
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 3, "known batch spawns three") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 3, "spawner cache tracks batch") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), get_nodes_in_group("enemies").size(), "cache equals group size") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), 3, "HUD cache follows spawner push") and ok
+	ok = assert_true(label.text.contains("ALIVE=3"), "HUD shows ALIVE=3 without interval wait") and ok
+	var victim: Node = null
+	for enemy: Node in get_nodes_in_group("enemies"):
+		if is_instance_valid(enemy):
+			victim = enemy
+			break
+	ok = assert_true(victim != null, "batch chaser available for lethal damage") and ok
+	if victim == null:
+		instance.queue_free()
+		return false
+	spawner.set("spawn_interval", 3600.0)
+	spawner.set("_accum", 0.0)
+	victim.call("take_damage", float(victim.get("max_health")))
+	for i in 30:
+		await physics_frame
+		if get_nodes_in_group("enemies").size() == 2:
+			break
+	ok = assert_eq(int(spawner.call("get_alive")), 2, "spawner cache decrements on died") and ok
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 2, "group reflects freed chaser") and ok
+	ok = assert_eq(int(instance.get("_cached_alive")), 2, "HUD cache follows died push") and ok
+	ok = assert_true(label.text.contains("ALIVE=2"), "HUD shows ALIVE=2 after died") and ok
+	instance.queue_free()
+	return ok
+
+
+func test_spawner_alive_count_tracks_spawn_and_died() -> bool:
+	var ok := true
+	await _clear_enemies()
+	var spawner: Node = load("res://spawner.gd").new()
+	root.add_child(spawner)
+	spawner.set_physics_process(false)
+	spawner.set("spawn_interval", 0.5)
+	spawner.set("batch_size", 1)
+	spawner.set("max_entities", 1000)
+	var dummy := Node2D.new()
+	root.add_child(dummy)
+	spawner.set("player", dummy)
+	await process_frame
+	ok = assert_eq(int(spawner.call("get_alive")), 0, "detached spawner cache starts at zero") and ok
+	spawner.call("_physics_process", 0.6)
+	ok = assert_eq(get_nodes_in_group("enemies").size(), 1, "detached tick spawns one") and ok
+	ok = assert_eq(int(spawner.call("get_alive")), 1, "cache tracks spawn") and ok
+	var victim: Node = null
+	for enemy: Node in get_nodes_in_group("enemies"):
+		if is_instance_valid(enemy) and enemy.get_parent() == spawner:
+			victim = enemy
+			break
+	ok = assert_true(victim != null, "spawned chaser available") and ok
+	if victim == null:
+		spawner.queue_free()
+		dummy.queue_free()
+		await _clear_enemies()
+		return false
+	victim.call("take_damage", float(victim.get("max_health")))
+	for i in 30:
+		await physics_frame
+		if not is_instance_valid(victim):
+			break
+	ok = assert_eq(int(spawner.call("get_alive")), 0, "cache decrements on died") and ok
+	spawner.queue_free()
+	dummy.queue_free()
+	await _clear_enemies()
 	return ok
 
 

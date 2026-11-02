@@ -18,12 +18,19 @@ const STATUS_EVERY_TICKS := 60
 
 var player: Node2D
 var peak_alive := 0
+var alive_count := 0
 var _accum := 0.0
 var _tick := 0
+
+signal alive_changed(count: int)
 
 
 func get_peak_alive() -> int:
 	return peak_alive
+
+
+func get_alive() -> int:
+	return alive_count
 
 
 func reset_peak() -> void:
@@ -72,6 +79,11 @@ func _physics_process(delta: float) -> void:
 ## damaged, so log the poof placeholder and forward the kill to the run
 ## coordinator through the same guarded lookup shape as _is_run_active.
 func _on_enemy_died(enemy: Node) -> void:
+	if alive_count > 0:
+		alive_count -= 1
+	else:
+		alive_count = 0
+	alive_changed.emit(alive_count)
 	var pos := Vector2.ZERO
 	if enemy != null and is_instance_valid(enemy) and enemy is Node2D:
 		pos = (enemy as Node2D).global_position
@@ -148,6 +160,8 @@ func _try_spawn(known_alive: int = -1) -> int:
 			if not chaser.is_connected("died", _on_enemy_died.bind(chaser)):
 				chaser.connect("died", _on_enemy_died.bind(chaser))
 		spawned += 1
+		alive_count += 1
+		alive_changed.emit(alive_count)
 		if verbose:
 			var now_alive := alive + spawned
 			print("SPAWNER_SPAWN SPAWN_DIST=%.2f MIN_VIEW_RADIUS=%.2f ALIVE=%d" % [dist, radius, now_alive])

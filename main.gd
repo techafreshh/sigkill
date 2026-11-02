@@ -9,6 +9,7 @@ var kill_count := 0
 var run_active := true
 var game_over := false
 var _hud_accum := 0.0
+var _cached_alive := 0
 
 var player: Node2D
 var spawner: Node2D
@@ -28,6 +29,7 @@ func _ready() -> void:
 	run_active = true
 	_hud_accum = 0.0
 	_connect_health_signals()
+	_connect_spawner_signals()
 	_refresh_hud()
 
 
@@ -64,6 +66,25 @@ func _on_player_health_changed(_current: float, _maximum: float) -> void:
 
 
 func _on_player_died() -> void:
+	_refresh_hud()
+
+
+## Spawner push cache: keep ALIVE= fresh outside the 0.25s poll. Mirrors the
+## _connect_health_signals guard idiom (null/valid, has_signal, is_connected).
+func _connect_spawner_signals() -> void:
+	if spawner == null or not is_instance_valid(spawner):
+		spawner = get_node_or_null("Spawner") as Node2D
+	if spawner == null or not is_instance_valid(spawner):
+		return
+	if spawner.has_signal("alive_changed"):
+		if not spawner.is_connected("alive_changed", _on_spawner_alive_changed):
+			spawner.connect("alive_changed", _on_spawner_alive_changed)
+	if spawner.has_method("get_alive"):
+		_cached_alive = int(spawner.call("get_alive"))
+
+
+func _on_spawner_alive_changed(count: int) -> void:
+	_cached_alive = count
 	_refresh_hud()
 
 
@@ -151,9 +172,7 @@ func _refresh_hud() -> void:
 	_connect_health_signals()
 	if status_label == null or not is_instance_valid(status_label):
 		return
-	var alive := 0
-	if get_tree() != null:
-		alive = get_tree().get_nodes_in_group("enemies").size()
+	var alive := _cached_alive
 	var hp := 100
 	if player != null and is_instance_valid(player) and player.has_method("get_hp"):
 		hp = int(player.call("get_hp"))
