@@ -122,11 +122,13 @@ func _on_enemy_died(enemy: Node) -> void:
 
 
 func _resolve_player() -> void:
+	if is_instance_valid(player):
+		return
 	if player_path != null and not player_path.is_empty():
 		player = get_node_or_null(player_path) as Node2D
-	if player == null:
-		player = get_node_or_null("../Player") as Node2D
-	if player == null and get_tree() != null:
+	if is_instance_valid(player):
+		return
+	if get_tree() != null:
 		player = get_tree().get_first_node_in_group("player") as Node2D
 
 
