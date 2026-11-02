@@ -72,6 +72,8 @@ func heal(amount: float) -> void:
 		return
 	if amount <= 0.0:
 		return
+	if hp >= max_hp:
+		return
 	hp = minf(hp + amount, max_hp)
 	health_changed.emit(hp, max_hp)
 
